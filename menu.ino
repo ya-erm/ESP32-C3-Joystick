@@ -1,254 +1,198 @@
+extern MenuDef* currentMenu; 
 
-enum MenuState {
-    MENU_MAIN,
-    MENU_GAMES,
-    MENU_MUSIC,
-    MENU_SETTINGS,
-    MENU_STATUS,
-    MENU_NONE
+// --- Главное меню ---
+const MenuItemDef mainItems[] = {
+    { "Car Control",  runCarMode, nullptr },
+    { "Games",        runGamesMenu, nullptr },
+    { "Music",        runMusicMenu, nullptr },
+    { "Status",       printStatus, nullptr },
+    { "Settings",     runSettingsMenu, nullptr }
 };
-  
-MenuState menuState = MENU_MAIN;
+MenuDef mainMenu = { "Menu", mainItems, 5, nullptr, 0 };
 
-int menuIndex = 0;
-int mainMenuIndex = 0;
-int gamesMenuIndex = 0;
-int musicMenuIndex = 0;
-int settingsMenuIndex = 0;
-
-const int MENU_VISIBLE_ITEMS = 5;
-
-// Верхняя и нижняя граница видимого окна (индексы элементов на экране)
-int menuScrollTop = 0;
-int menuScrollBottom = 0;
-
-void drawMenu(const char* title, const char* items[], int itemCount, int index, int scrollTop) {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(8, 3);
-    display.println(title);
-    display.drawLine(0, 13, 127, 13, SSD1306_WHITE);
-
-    for (int i = 0; i < MENU_VISIBLE_ITEMS; i++) {
-        int itemIdx = scrollTop + i;
-        if (itemIdx >= itemCount) break;
-        display.setCursor(0, 16 + i * 10);
-        if (itemIdx == index) {
-            display.print(">");
-        }
-        display.setCursor(8, 16 + i * 10);
-        display.println(items[itemIdx]);
-    }
-
-    display.display();
+void initMenu() {
+    currentMenu = &mainMenu;
 }
 
-// Обновляет menuScrollTop/menuScrollBottom: курсор не должен выходить за границы окна
-void updateMenuScroll(int itemCount, int index) {
-    if (itemCount <= MENU_VISIBLE_ITEMS) {
-        menuScrollTop = 0;
-        menuScrollBottom = itemCount - 1;
-        return;
-    }
-    menuScrollBottom = min(itemCount - 1, menuScrollTop + MENU_VISIBLE_ITEMS - 1);
-    if (index < menuScrollTop) {
-        menuScrollTop = index;
-        menuScrollBottom = min(itemCount - 1, menuScrollTop + MENU_VISIBLE_ITEMS - 1);
-    } else if (index > menuScrollBottom) {
-        menuScrollTop = max(0, index - MENU_VISIBLE_ITEMS + 1);
-        menuScrollBottom = min(itemCount - 1, menuScrollTop + MENU_VISIBLE_ITEMS - 1);
-    }
+// --- Игры ---
+const MenuItemDef gamesItems[] = {
+    { "Tennis",       playTennisGame, nullptr },
+    { "Snake",        playSnakeGame, nullptr },
+    { "Tetris",       playTetrisGame, nullptr }
+};
+MenuDef gamesMenu = { "Games", gamesItems, 3, &mainMenu, 0 };
+
+// --- Музыка ---
+const MenuItemDef musicItems[] = {
+    { "Harry Potter", playHarryPotterMelody, nullptr },
+    { "Star Wars",    playStarWarsMelody, nullptr },
+    { "Pacman",       playPacmanMelody, nullptr },
+    { "Super Mario",  playMarioMelody, nullptr },
+    { "Tetris",       playTetrisMelody, nullptr }
+};
+MenuDef musicMenu = { "Music", musicItems, 5, &mainMenu, 0 };
+
+// --- Настройки ---
+const MenuItemDef settingsItems[] = {
+    { "Wi-Fi",        runWiFiSettingsMenu, nullptr },
+    { "Sound",        runSoundSettingsMenu, nullptr },
+    { "Motor",        runMotorSettingsMenu, nullptr },
+    { "Joystick DZ",  changeJoystickDeadzone, getJoyDzValue },
+    { "Debug",        toggleDebugLogs, getDebugValue }
+};
+MenuDef settingsMenu = { "Settings", settingsItems, 5, &mainMenu, 0 };
+
+// --- Настройки Wi-Fi ---
+const MenuItemDef wifiSettingsItems[] = {
+    { "Mode",         toggleWiFiMode, getWiFiModeValue },
+    { "ID",           doNothing, getMacValue },
+    { "SSID",         doNothing, getSSIDValue },
+    { "IP",           doNothing, getIPValue },
+};
+MenuDef wifiSettingsMenu = { "Wi-Fi (in progress)", wifiSettingsItems, 4, &settingsMenu, 0 };
+
+// --- Настройки звука---
+const MenuItemDef soundSettingsItems[] = {
+    { "Sound",        toggleSound, getSoundValue },
+    { "Melody",       changeMelody, getMelodyValue },
+};
+MenuDef soundSettingsMenu = { "Sound Settings", soundSettingsItems, 2, &settingsMenu, 0 };
+
+// --- Настройки моторов ---
+const MenuItemDef motorSettingsItems[] = {
+    { "Turn",         changeTurnSpeed, getTurnValue },
+    { "Speed",        changeMotorSpeed, getSpeedValue },
+    { "Motor DZ",     changeMotorDeadzone, getMotorDzValue }
+};
+MenuDef motorSettingsMenu = { "Motor Settings", motorSettingsItems, 3, &settingsMenu, 0 };
+
+void doNothing() {}
+
+// --- Функции для переключения меню ---
+void runGamesMenu() {
+    switchMenu(&gamesMenu);
 }
 
-void runMenu() {
-    unsigned long lastInput = millis();
-    menuState = MENU_MAIN;
-    menuIndex = 0;
-
-    while (true) {
-        // === Чтение джойстиков ===
-        JoystickData input = readJoysticks();
-
-        int moveY = 0;
-        if (input.ly > 50 || input.ry > 50) moveY = -1;
-        else if (input.ly < -50 || input.ry < -50) moveY = 1;
-        bool enter = input.rb || input.rx > 50;
-        bool back = input.lb || input.rx < -50;
-        
-        // === Навигация ===
-        static unsigned long lastMove = 0;
-        if (millis() - lastMove > 250 && moveY != 0) {
-            if (sound) tone(BUZZER_PIN, MOVE_TONE, 50);
-            lastMove = millis();
-            menuIndex += moveY;
-        }
-
-        // === Обработка по текущему меню ===
-        if (menuState == MENU_MAIN) {
-            const char* items[] = { 
-              "Car Control",
-              "Games",
-              "Music",
-              "Status",
-              "Settings"
-            };
-            int itemCount = 5;
-            if (menuIndex < 0) menuIndex = itemCount - 1;
-            if (menuIndex >= itemCount) menuIndex = 0;
-            updateMenuScroll(itemCount, menuIndex);
-            drawMenu("Menu", items, itemCount, menuIndex, menuScrollTop);
-
-            if (enter) {
-                if (sound) tone(BUZZER_PIN, OK_TONE, 50);
-                mainMenuIndex = menuIndex;
-                if (menuIndex == 0) runCarMode();
-                else if (menuIndex == 1) { menuState = MENU_GAMES; menuIndex = gamesMenuIndex; }
-                else if (menuIndex == 2) { menuState = MENU_MUSIC; menuIndex = musicMenuIndex; }
-                else if (menuIndex == 3) printStatus();
-                else if (menuIndex == 4) { menuState = MENU_SETTINGS; menuIndex = settingsMenuIndex; }
-                delay(200);
-            }
-        }
-
-        else if (menuState == MENU_STATUS) {
-        }
-
-        else if (menuState == MENU_GAMES) {
-            const char* items[] = { 
-              "Tennis",
-              "Snake",
-              "Tetris"
-            };
-            int itemCount = 3;
-            if (menuIndex < 0) menuIndex = itemCount - 1;
-            if (menuIndex >= itemCount) menuIndex = 0;
-            updateMenuScroll(itemCount, menuIndex);
-            drawMenu("Games", items, itemCount, menuIndex, menuScrollTop);
-
-            if (enter) {
-                if (sound) tone(BUZZER_PIN, OK_TONE, 50);
-                if (menuIndex == 0) {
-                    playTennisGame();
-                } else if (menuIndex == 1) {
-                    playSnakeGame();
-                } else if (menuIndex == 2) {
-                    playTetrisGame();
-                }
-                delay(200);
-            }
-
-            if (back) { 
-                if (sound) tone(BUZZER_PIN, BACK_TONE, 50);
-                gamesMenuIndex = menuIndex;
-                menuState = MENU_MAIN; 
-                menuIndex = mainMenuIndex;
-                delay(200); 
-            }
-        }
-
-        else if (menuState == MENU_MUSIC) {
-            const char* melodyNames[] = { "Harry Potter", "Star Wars", "Pacman", "Super Mario", "Tetris" };
-            int itemCount = 5;
-            if (menuIndex < 0) menuIndex = itemCount - 1;
-            if (menuIndex >= itemCount) menuIndex = 0;
-            updateMenuScroll(itemCount, menuIndex);
-            drawMenu("Music", melodyNames, itemCount, menuIndex, menuScrollTop);
-
-            if (enter) {
-                // if (sound) tone(BUZZER_PIN, OK_TONE, 50);
-                // startupMelody = menuIndex;
-                // saveMelodySetting();
-
-                // Проигрываем выбранную мелодию
-                playMusic(menuIndex);
-            }
-            if (back) {
-                if (sound) tone(BUZZER_PIN, BACK_TONE, 50);
-                musicMenuIndex = menuIndex;
-                menuState = MENU_MAIN;
-                menuIndex = mainMenuIndex;
-                delay(200);
-            }
-        }
-
-        else if (menuState == MENU_SETTINGS) {
-            const char* melodyNames[] = { "OFF", "Mario", "Nokia" };
-            static char melodyStr[20];
-            static char turnStr[24];
-            static char speedStr[24];
-            static char deadzoneStr[24];
-            static char joyDzStr[24];
-            snprintf(melodyStr, sizeof(melodyStr), "Melody:%s", melodyNames[startupMelody]);
-            snprintf(turnStr, sizeof(turnStr), "Turn:%.1f", (double)turnSpeed);
-            snprintf(speedStr, sizeof(speedStr), "Speed:%.1f", (double)motorSpeed);
-            snprintf(deadzoneStr, sizeof(deadzoneStr), "Motor DZ:%d", motorDeadzone);
-            snprintf(joyDzStr, sizeof(joyDzStr), "Joystick DZ:%d", joystickDeadzone);
-            const char* items[] = { 
-              sound ? "Sound:ON" : "Sound:OFF",
-              melodyStr,
-              turnStr,
-              speedStr,
-              deadzoneStr,
-              joyDzStr,
-              debug ? "Debug:ON" : "Debug:OFF"
-            };
-            int itemCount = 7;
-            if (menuIndex < 0) menuIndex = itemCount - 1;
-            if (menuIndex >= itemCount) menuIndex = 0;
-            updateMenuScroll(itemCount, menuIndex);
-            drawMenu("Settings", items, itemCount, menuIndex, menuScrollTop);
-
-            if (enter) {
-                if (menuIndex == 0) {
-                    sound = !sound;
-                    saveSoundSetting();
-                } else if (menuIndex == 1) {
-                    startupMelody = (startupMelody + 1) % 3;
-                    snprintf(melodyStr, sizeof(melodyStr), "Melody:%s", melodyNames[startupMelody]);
-                    drawMenu("Settings", items, itemCount, menuIndex, menuScrollTop);
-                    saveMelodySetting();
-                    playMelody(startupMelody);
-                } else if (menuIndex == 2) {
-                    turnSpeed += 0.1f;
-                    if (turnSpeed > 1.0f) turnSpeed = 0.2f;
-                    snprintf(turnStr, sizeof(turnStr), "Turn:%.1f", (double)turnSpeed);
-                    drawMenu("Settings", items, itemCount, menuIndex, menuScrollTop);
-                    saveTurnSetting();
-                } else if (menuIndex == 3) {
-                    motorSpeed += 0.1f;
-                    if (motorSpeed > 1.0f) motorSpeed = 0.3f;
-                    snprintf(speedStr, sizeof(speedStr), "Speed:%.1f", (double)motorSpeed);
-                    drawMenu("Settings", items, itemCount, menuIndex, menuScrollTop);
-                    saveSpeedSetting();
-                } else if (menuIndex == 4) {
-                    motorDeadzone += 5;
-                    if (motorDeadzone > 30) motorDeadzone = 0;
-                    snprintf(deadzoneStr, sizeof(deadzoneStr), "Motor DZ:%d", motorDeadzone);
-                    drawMenu("Settings", items, itemCount, menuIndex, menuScrollTop);
-                    saveCarDeadzoneSetting();
-                } else if (menuIndex == 5) {
-                    joystickDeadzone += 10;
-                    if (joystickDeadzone > 100) joystickDeadzone = 0;
-                    snprintf(joyDzStr, sizeof(joyDzStr), "Joystick DZ:%d", joystickDeadzone);
-                    drawMenu("Settings", items, itemCount, menuIndex, menuScrollTop);
-                    saveJoystickDeadzoneSetting();
-                } else if (menuIndex == 6) {
-                    debug = !debug;
-                    savedebugSetting();
-                }
-                delay(200);
-            }
-            if (back) {
-                if (sound) tone(BUZZER_PIN, BACK_TONE, 50);
-                settingsMenuIndex = menuIndex;
-                menuState = MENU_MAIN;
-                menuIndex = mainMenuIndex;
-                delay(200);
-            }
-        }
-
-        delay(50);
-    }
+void runMusicMenu() {
+    switchMenu(&musicMenu);
 }
-  
+
+void runSettingsMenu() {
+    switchMenu(&settingsMenu);
+}
+
+void runWiFiSettingsMenu() {
+    switchMenu(&wifiSettingsMenu);
+}
+
+void runSoundSettingsMenu() {
+    switchMenu(&soundSettingsMenu);
+}
+
+void runMotorSettingsMenu() {
+    switchMenu(&motorSettingsMenu);
+}
+
+// --- Звук ---
+static const char* getSoundValue() {
+    return sound ? "ON" : "OFF";
+}
+static void toggleSound() {
+    sound = !sound;
+    saveSoundSetting();
+}
+
+// --- Мелодия при запуске ---
+static const char* getMelodyValue() {
+   switch (startupMelody) {
+    case 0: return "OFF";
+    case 1: return "Mario";
+    case 2: return "Nokia";
+   }
+}
+static void changeMelody() {
+    startupMelody = (startupMelody + 1) % 3;
+    drawMenu(currentMenu);
+    saveMelodySetting();
+    playMelody(startupMelody);
+}
+
+// --- Скорость поворота ---
+static const char* getTurnValue() {
+    static char str[4];
+    snprintf(str, sizeof(str), "%.1f", (double)turnSpeed);
+    return str;
+}
+static void changeTurnSpeed() {
+    turnSpeed += 0.1f;
+    if (turnSpeed > 1.0f) turnSpeed = 0.2f;
+    saveTurnSetting();
+}
+
+// --- Скорость моторов ---
+static const char* getSpeedValue() {
+    static char str[4];
+    snprintf(str, sizeof(str), "%.1f", (double)motorSpeed);
+    return str;
+}
+static void changeMotorSpeed() {
+    motorSpeed += 0.1f;
+    if (motorSpeed > 1.0f) motorSpeed = 0.3f;
+    saveSpeedSetting();
+}
+
+// --- Мёртвая зона моторов ---
+static const char* getMotorDzValue() {
+    static char motorDzStr[4];
+    snprintf(motorDzStr, sizeof(motorDzStr), "%d", motorDeadzone);
+    return motorDzStr;
+}
+static void changeMotorDeadzone() {
+    motorDeadzone += 5;
+    if (motorDeadzone > 30) motorDeadzone = 0;
+    saveCarDeadzoneSetting();
+}
+
+// --- Мёртвая зона джойстика ---
+static const char* getJoyDzValue() {
+    static char joyDzStr[4];
+    snprintf(joyDzStr, sizeof(joyDzStr), "%d", joystickDeadzone);
+    return joyDzStr;
+}
+static void changeJoystickDeadzone() {
+    joystickDeadzone += 10;
+    if (joystickDeadzone > 100) joystickDeadzone = 0;
+    saveJoystickDeadzoneSetting();
+}
+
+// --- Логирование отладочной информации ---
+static const char* getDebugValue() {
+    return debug ? "ON" : "OFF";
+}
+static void toggleDebugLogs() {
+    debug = !debug;
+    savedebugSetting();
+}
+
+// --- Режим Wi-Fi ---
+static const char* getWiFiModeValue() {
+    return WiFi.getMode() == WIFI_MODE_STA ? "STA" : "AP";
+}
+static void toggleWiFiMode() {
+    WiFi.mode(WiFi.getMode() == WIFI_MODE_STA ? WIFI_MODE_AP : WIFI_MODE_STA);
+}
+
+// --- MAC Wi-Fi ---
+static const char* getMacValue() {
+    return WiFi.macAddress().c_str();
+}
+
+// --- SSID Wi-Fi ---
+static const char* getSSIDValue() {
+    return WiFi.SSID().c_str();
+}
+
+// --- IP Wi-Fi ---
+static const char* getIPValue() {
+    return WiFi.localIP().toString().c_str();
+}

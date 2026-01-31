@@ -51,6 +51,20 @@ struct JoystickData {
   bool rb;
 };
 
+struct MenuItemDef {
+  const char* label;
+  void (*action)();
+  const char* (*getValue)();
+};
+
+struct MenuDef {
+  const char* title;
+  const MenuItemDef* items;
+  int itemCount;
+  MenuDef* parent;
+  int currentItemIndex;
+};
+
 // === Структура игры тетрис ===
 struct Piece {
   int type;      // тип фигуры (0-6)
@@ -58,6 +72,8 @@ struct Piece {
   int x;         // позиция X
   int y;         // позиция Y
 };
+
+MenuDef* currentMenu = nullptr;
 
 // === Preferences для сохранения настроек ===
 Preferences preferences;
@@ -129,7 +145,6 @@ void saveJoystickDeadzoneSetting() {
   preferences.end();
 }
 
-
 void setup() {
   Serial.begin(115200);
   Wire.begin(SDA, SCL);
@@ -154,6 +169,7 @@ void setup() {
   loadPreferences();
   playMelody(startupMelody);
   initCar();
+  initMenu();
   uint8_t mac[6];
   WiFi.macAddress(mac);
   Serial.printf("[Joystick] MAC %02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
