@@ -183,7 +183,7 @@ void runMenu() {
             snprintf(turnStr, sizeof(turnStr), "Turn:%.1f", (double)turnSpeed);
             snprintf(speedStr, sizeof(speedStr), "Speed:%.1f", (double)motorSpeed);
             snprintf(deadzoneStr, sizeof(deadzoneStr), "Motor DZ:%d", motorDeadzone);
-            snprintf(joyDzStr, sizeof(joyDzStr), "Joy DZ:%d", joystickDeadzone);
+            snprintf(joyDzStr, sizeof(joyDzStr), "Joystick DZ:%d", joystickDeadzone);
             const char* items[] = { 
               sound ? "Sound:ON" : "Sound:OFF",
               melodyStr,
@@ -230,7 +230,7 @@ void runMenu() {
                 } else if (menuIndex == 5) {
                     joystickDeadzone += 10;
                     if (joystickDeadzone > 100) joystickDeadzone = 0;
-                    snprintf(joyDzStr, sizeof(joyDzStr), "Joy DZ:%d", joystickDeadzone);
+                    snprintf(joyDzStr, sizeof(joyDzStr), "Joystick DZ:%d", joystickDeadzone);
                     drawMenu("Settings", items, itemCount, menuIndex, menuScrollTop);
                     saveJoystickDeadzoneSetting();
                 } else if (menuIndex == 6) {

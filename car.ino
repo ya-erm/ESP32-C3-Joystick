@@ -127,7 +127,7 @@ void runCarMode() {
     display.clearDisplay();
     display.setTextSize(1);
     display.setCursor(8, 3);
-    display.print("Car");
+    display.print("Car Control");
     display.drawLine(0, 13, 127, 13, SSD1306_WHITE);
     int l0 = 16;
     display.setCursor(0, l0);
