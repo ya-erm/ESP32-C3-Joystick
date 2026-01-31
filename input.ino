@@ -10,25 +10,25 @@
 #define RX_INVERT false
 #define RY_INVERT true
 
-// === Порог мёртвой зоны ===
-#define DEADZONE 30
+// Порог мёртвой зоны задаётся в настройках (joystickDeadzone)
+extern int joystickDeadzone;
 
 // === Обработка значения оси ===
 int processAxis(int raw, int center, bool invert, int amplitude = 100) {
   int value = raw - center;
   if (invert) value = -value;
-  if (abs(value) < DEADZONE) value = 0; // подавляем шум
+  if (abs(value) < joystickDeadzone) value = 0; // подавляем шум
   int scaledValue = map(value, -center, center, -amplitude, amplitude);
   return scaledValue;
 }
 
 char getHDir(int x) {
-  if (abs(x) < DEADZONE) return '-';
+  if (abs(x) < joystickDeadzone) return '-';
   return x > 0 ? 'R' : 'L';
 }
 
 char getVDir(int y) {
-  if (abs(y) < DEADZONE) return '-';
+  if (abs(y) < joystickDeadzone) return '-';
   return y > 0 ? 'U' : 'D';
 }
 

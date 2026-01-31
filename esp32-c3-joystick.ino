@@ -1,4 +1,5 @@
 #include <Wire.h>
+#include <WiFi.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Preferences.h>
@@ -61,13 +62,28 @@ struct Piece {
 // === Preferences для сохранения настроек ===
 Preferences preferences;
 
-bool sound = true;
-int startupMelody = 1; // 0=OFF, 1-5 - melodies
+bool sound = true;  // звуки
+bool debug = false; // логирование отладочной информации
+
+int startupMelody = 1;     // 0=OFF, 1-5 - melodies
+int joystickDeadzone = 30; // мёртвая зона осей джойстика (0–100)
+int motorDeadzone = 10;    // мёртвая зона моторов (0–30)
+float motorSpeed = 0.8f;   // коэффициент скорости моторов (0.3–1.0)
+float turnSpeed = 0.6f;    // коэффициент поворота (0.2–1.0)
 
 void loadPreferences() {
   preferences.begin("settings", true);
   sound = preferences.getBool("sound", true);
   startupMelody = preferences.getInt("melody", 1);
+  turnSpeed = preferences.getFloat("turn", 0.6f);
+  turnSpeed = constrain(turnSpeed, 0.2f, 1.0f);
+  motorSpeed = preferences.getFloat("speed", 0.8f);
+  motorSpeed = constrain(motorSpeed, 0.3f, 1.0f);
+  debug = preferences.getBool("debug", false);
+  motorDeadzone = preferences.getInt("carDz", 10);
+  motorDeadzone = constrain(motorDeadzone, 0, 30);
+  joystickDeadzone = preferences.getInt("joyDz", 30);
+  joystickDeadzone = constrain(joystickDeadzone, 0, 100);
   preferences.end();
 }
 
@@ -83,8 +99,39 @@ void saveMelodySetting() {
   preferences.end();
 }
 
+void saveTurnSetting() {
+  preferences.begin("settings", false);
+  preferences.putFloat("turn", turnSpeed);
+  preferences.end();
+}
+
+void saveSpeedSetting() {
+  preferences.begin("settings", false);
+  preferences.putFloat("speed", motorSpeed);
+  preferences.end();
+}
+
+void savedebugSetting() {
+  preferences.begin("settings", false);
+  preferences.putBool("debug", debug);
+  preferences.end();
+}
+
+void saveCarDeadzoneSetting() {
+  preferences.begin("settings", false);
+  preferences.putInt("carDz", motorDeadzone);
+  preferences.end();
+}
+
+void saveJoystickDeadzoneSetting() {
+  preferences.begin("settings", false);
+  preferences.putInt("joyDz", joystickDeadzone);
+  preferences.end();
+}
+
 
 void setup() {
+  Serial.begin(115200);
   Wire.begin(SDA, SCL);
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
   display.clearDisplay();
@@ -106,6 +153,10 @@ void setup() {
   
   loadPreferences();
   playMelody(startupMelody);
+  initCar();
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  Serial.printf("[Joystick] MAC %02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   delay(500);
   runMenu();
 }
