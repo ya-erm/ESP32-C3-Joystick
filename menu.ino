@@ -36,13 +36,14 @@ MenuDef musicMenu = { "Music", musicItems, 5, &mainMenu, 0 };
 // --- Настройки ---
 const MenuItemDef settingsItems[] = {
     { "Wi-Fi",        runWiFiSettingsMenu, nullptr },
+    { "OTA Update",   runOtaMode, nullptr },
     { "Sound",        runSoundSettingsMenu, nullptr },
     { "Motor",        runMotorSettingsMenu, nullptr },
     { "Yellow Car",   runYellowCarSettingsMenu, nullptr },
     { "Joystick DZ",  changeJoystickDeadzone, getJoyDzValue },
     { "Debug",        toggleDebugLogs, getDebugValue }
 };
-MenuDef settingsMenu = { "Settings", settingsItems, 6, &mainMenu, 0 };
+MenuDef settingsMenu = { "Settings", settingsItems, 7, &mainMenu, 0 };
 
 // --- Настройки Wi-Fi ---
 const MenuItemDef wifiSettingsItems[] = {
