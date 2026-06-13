@@ -19,9 +19,10 @@ void initMenu() {
 const MenuItemDef gamesItems[] = {
     { "Tennis",       playTennisGame, nullptr },
     { "Snake",        playSnakeGame, nullptr },
-    { "Tetris",       playTetrisGame, nullptr }
+    { "Tetris",       playTetrisGame, nullptr },
+    { "T-Rex",        playTrexGame, nullptr }
 };
-MenuDef gamesMenu = { "Games", gamesItems, 3, &mainMenu, 0 };
+MenuDef gamesMenu = { "Games", gamesItems, 4, &mainMenu, 0 };
 
 // --- Музыка ---
 const MenuItemDef musicItems[] = {
