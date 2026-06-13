@@ -3,12 +3,13 @@ extern MenuDef* currentMenu;
 // --- Главное меню ---
 const MenuItemDef mainItems[] = {
     { "Car Control",  runCarMode, nullptr },
+    { "Yellow Car",   runYellowCarMode, nullptr },
     { "Games",        runGamesMenu, nullptr },
     { "Music",        runMusicMenu, nullptr },
     { "Status",       printStatus, nullptr },
     { "Settings",     runSettingsMenu, nullptr }
 };
-MenuDef mainMenu = { "Menu", mainItems, 5, nullptr, 0 };
+MenuDef mainMenu = { "Menu", mainItems, 6, nullptr, 0 };
 
 void initMenu() {
     currentMenu = &mainMenu;
@@ -37,10 +38,11 @@ const MenuItemDef settingsItems[] = {
     { "Wi-Fi",        runWiFiSettingsMenu, nullptr },
     { "Sound",        runSoundSettingsMenu, nullptr },
     { "Motor",        runMotorSettingsMenu, nullptr },
+    { "Yellow Car",   runYellowCarSettingsMenu, nullptr },
     { "Joystick DZ",  changeJoystickDeadzone, getJoyDzValue },
     { "Debug",        toggleDebugLogs, getDebugValue }
 };
-MenuDef settingsMenu = { "Settings", settingsItems, 5, &mainMenu, 0 };
+MenuDef settingsMenu = { "Settings", settingsItems, 6, &mainMenu, 0 };
 
 // --- Настройки Wi-Fi ---
 const MenuItemDef wifiSettingsItems[] = {
@@ -65,6 +67,13 @@ const MenuItemDef motorSettingsItems[] = {
     { "Motor DZ",     changeMotorDeadzone, getMotorDzValue }
 };
 MenuDef motorSettingsMenu = { "Motor Settings", motorSettingsItems, 3, &settingsMenu, 0 };
+
+// --- Настройки Yellow Car ---
+const MenuItemDef yellowCarSettingsItems[] = {
+    { "Max Speed",    changeYellowMaxSpeed, getYellowMaxSpeedValue },
+    { "MAC",          doNothing, getYellowMacValue }
+};
+MenuDef yellowCarSettingsMenu = { "Yellow Car", yellowCarSettingsItems, 2, &settingsMenu, 0 };
 
 void doNothing() {}
 
@@ -91,6 +100,10 @@ void runSoundSettingsMenu() {
 
 void runMotorSettingsMenu() {
     switchMenu(&motorSettingsMenu);
+}
+
+void runYellowCarSettingsMenu() {
+    switchMenu(&yellowCarSettingsMenu);
 }
 
 // --- Звук ---
@@ -139,6 +152,21 @@ static void changeMotorSpeed() {
     motorSpeed += 0.1f;
     if (motorSpeed > 1.0f) motorSpeed = 0.3f;
     saveSpeedSetting();
+}
+
+// --- Yellow Car: макс. скорость ---
+static const char* getYellowMaxSpeedValue() {
+    static char str[4];
+    snprintf(str, sizeof(str), "%d", yellowMaxSpeed);
+    return str;
+}
+static void changeYellowMaxSpeed() {
+    yellowMaxSpeed += 10;
+    if (yellowMaxSpeed > 100) yellowMaxSpeed = 10;
+    saveYellowMaxSpeedSetting();
+}
+static const char* getYellowMacValue() {
+    return "48:55:19:C8:72:5F";
 }
 
 // --- Мёртвая зона моторов ---
