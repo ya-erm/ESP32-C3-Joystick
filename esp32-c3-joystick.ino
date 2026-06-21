@@ -18,12 +18,15 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 #define RY_PIN 3
 #define RB_PIN 10
 
+// === Измерение напряжения аккумулятора ===
+#define BATTERY_ADC_PIN 2
+
 // === I2C ===
 #define SDA 8
 #define SCL 9
 
 // === Пин буззера ===
-#define BUZZER_PIN 2
+#define BUZZER_PIN 6
 
 #define OK_TONE 1568    // G6 – Яркий подтверждающий звук
 #define BACK_TONE 784   // G5 – Более мягкий для "назад"
@@ -161,6 +164,7 @@ void setup() {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
+  display.cp437(true);
 
   analogReadResolution(12);
   pinMode(LB_PIN, INPUT_PULLUP);
@@ -169,6 +173,7 @@ void setup() {
   pinMode(LY_PIN, INPUT);
   pinMode(RX_PIN, INPUT);
   pinMode(RY_PIN, INPUT);
+  pinMode(BATTERY_ADC_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
 
   display.setCursor(0, 4);

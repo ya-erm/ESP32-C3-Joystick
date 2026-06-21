@@ -101,6 +101,7 @@ void runYellowCarMode() {
     display.printf(" Servo: %4d", servoVal);
     display.setCursor(0, l0 + 40);
     display.printf(" LB - exit");
+    drawBatteryIcon();
     display.display();
 
     delay(20);

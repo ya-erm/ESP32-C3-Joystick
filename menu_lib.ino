@@ -19,6 +19,23 @@ const int MENU_VISIBLE_ITEMS = 5;
 int menuScrollTop = 0;
 int menuScrollBottom = 0;
 
+void drawBatteryIcon() {
+    constexpr int x = 111;
+    constexpr int y = 2;
+
+    // Освобождаем правую часть заголовка под индикатор.
+    display.fillRect(x - 1, 0, SCREEN_WIDTH - x + 1, 13, SSD1306_BLACK);
+
+    // Корпус 15x9 и положительный контакт справа.
+    display.drawRect(x, y, 15, 9, SSD1306_WHITE);
+    display.drawFastVLine(x + 15, y + 2, 5, SSD1306_WHITE);
+
+    uint8_t segments = readBatterySegments();
+    for (uint8_t i = 0; i < segments; i++) {
+        display.fillRect(x + 2 + i * 3, y + 2, 2, 5, SSD1306_WHITE);
+    }
+}
+
 void drawMenu(const MenuDef* menuDef) {
     display.clearDisplay();
     display.setTextSize(1);
@@ -42,6 +59,7 @@ void drawMenu(const MenuDef* menuDef) {
             display.println();
         }
     }
+    drawBatteryIcon();
     display.display();
 }
 

@@ -62,3 +62,49 @@ bool readLeftButton() {
 bool readRightButton() {
   return digitalRead(RB_PIN) == LOW;
 }
+
+uint16_t readBatteryAdcRaw() {
+  // Первое чтение после каналов джойстиков даёт ADC время переключиться
+  // на высокоомный делитель. Оно намеренно не используется.
+  analogRead(BATTERY_ADC_PIN);
+  delayMicroseconds(500);
+  return analogRead(BATTERY_ADC_PIN);
+}
+
+// Две опорные точки измерителя напряжения
+// Значения ADC при измерении напряжения
+constexpr float BATTERY_VOLTAGE_LOW = 3.860f;
+constexpr float BATTERY_ADC_RAW_LOW = 2938.5f;
+constexpr float BATTERY_VOLTAGE_HIGH = 5.215f;
+constexpr float BATTERY_ADC_RAW_HIGH = 3002.5f;
+
+float batteryVoltageFromRaw(float raw) {
+  return BATTERY_VOLTAGE_LOW
+      + (raw - BATTERY_ADC_RAW_LOW)
+          * (BATTERY_VOLTAGE_HIGH - BATTERY_VOLTAGE_LOW)
+          / (BATTERY_ADC_RAW_HIGH - BATTERY_ADC_RAW_LOW);
+}
+
+uint8_t readBatterySegments() {
+  static float filteredRaw = -1.0f;
+  static unsigned long lastReadAt = 0;
+
+  unsigned long now = millis();
+  if (filteredRaw < 0.0f || now - lastReadAt >= 500) {
+    uint16_t raw = readBatteryAdcRaw();
+    if (filteredRaw < 0.0f) {
+      filteredRaw = raw;
+    } else {
+      constexpr float FILTER_ALPHA = 0.2f;
+      filteredRaw += FILTER_ALPHA * (raw - filteredRaw);
+    }
+    lastReadAt = now;
+  }
+
+  float voltage = batteryVoltageFromRaw(filteredRaw);
+  if (voltage < 3.30f) return 0;
+  if (voltage < 3.55f) return 1;
+  if (voltage < 3.75f) return 2;
+  if (voltage < 3.95f) return 3;
+  return 4;
+}
