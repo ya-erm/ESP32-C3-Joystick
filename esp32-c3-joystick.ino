@@ -194,6 +194,57 @@ void runDisplayDiagnostic() {
   }
 }
 
+int centeredTextX(const char* text, uint8_t textSize = 1) {
+  int textWidth = strlen(text) * 6 * textSize;
+  return max(0, (SCREEN_WIDTH - textWidth) / 2);
+}
+
+void drawCenteredText(const char* text, int y, uint8_t textSize, uint16_t color) {
+  display.setTextSize(textSize);
+  display.setTextColor(color);
+  display.setCursor(centeredTextX(text, textSize), y);
+  display.print(text);
+}
+
+void drawStartupSplash() {
+  const int bodyX = 37;
+  const int bodyY = 10;
+  const int bodyW = 86;
+  const int bodyH = 42;
+  const int screenX = 64;
+  const int screenY = 16;
+  const int screenW = 32;
+  const int screenH = 22;
+  const uint16_t shellColor = 0x4A69;
+
+  display.clearDisplay();
+
+  display.drawRoundRect(bodyX, bodyY, bodyW, bodyH, 8, ST77XX_CYAN);
+  display.fillRoundRect(bodyX + 2, bodyY + 2, bodyW - 4, bodyH - 4, 6, shellColor);
+
+  display.drawRoundRect(screenX, screenY, screenW, screenH, 3, SSD1306_WHITE);
+  display.fillRect(screenX + 3, screenY + 3, screenW - 6, screenH - 6, SSD1306_BLACK);
+  display.drawFastHLine(screenX + 7, screenY + 9, screenW - 14, ST77XX_CYAN);
+  display.drawFastHLine(screenX + 10, screenY + 14, screenW - 20, UI_FOOTER_COLOR);
+
+  display.drawCircle(bodyX + 12, bodyY + 14, 8, SSD1306_WHITE);
+  display.fillCircle(bodyX + 12, bodyY + 14, 4, SSD1306_BLACK);
+  display.fillCircle(bodyX + 14, bodyY + 12, 2, ST77XX_CYAN);
+
+  display.drawCircle(bodyX + bodyW - 12, bodyY + 14, 8, SSD1306_WHITE);
+  display.fillCircle(bodyX + bodyW - 12, bodyY + 14, 4, SSD1306_BLACK);
+  display.fillCircle(bodyX + bodyW - 10, bodyY + 12, 2, ST77XX_CYAN);
+
+  display.drawRoundRect(screenX + 10, screenY + screenH + 2, 12, 5, 2, SSD1306_WHITE);
+  display.fillRect(screenX + 12, screenY + screenH + 4, 4, 1, ST77XX_RED);
+  display.fillRect(screenX + 17, screenY + screenH + 4, 3, 1, UI_FOOTER_COLOR);
+
+  drawCenteredText("ESP32 Joystick", 61, 1, SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.display();
+}
+
 MenuDef* currentMenu = nullptr;
 
 // === Preferences для сохранения настроек ===
@@ -302,9 +353,7 @@ void setup() {
   pinMode(BATTERY_ADC_PIN, INPUT);
   pinMode(BUZZER_PIN, OUTPUT);
 
-  display.setCursor(0, 4);
-  display.print("   ESP32 Joystick   ");
-  display.display();
+  drawStartupSplash();
   
   loadPreferences();
   playMelody(startupMelody);
