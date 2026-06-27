@@ -1,13 +1,14 @@
 extern bool sound;
 
 // === Размеры игрового поля ===
-// Экран повернут на 90°: 64x128 (ширина x высота)
-// Поле занимает всю высоту экрана
-const int FIELD_WIDTH = 11;   // ширина поля (количество клеток) = 11*4=44px
-const int FIELD_HEIGHT = 30;  // высота поля (количество клеток) = 30*4=120px
-const int CELL_SIZE = 4;      // размер клетки в пикселях
-const int FIELD_X = 2;        // начинаем с X=1
-const int FIELD_Y = 2;        // начинаем с Y=0
+// Экран в портретной ориентации ST7735: 80x160. HUD сверху, поле занимает всю ширину.
+const int FIELD_WIDTH = 20;
+const int FIELD_HEIGHT = 37;
+const int CELL_SIZE = 4;
+const int FIELD_X = 0;
+const int FIELD_Y = 11;
+const int TETRIS_HUD_HEIGHT = 10;
+const int TETRIS_GHOST_CELL = 8;
 
 // === Фигуры тетромино (7 типов) ===
 const int TETROMINOES[7][4][4] = {
@@ -28,8 +29,14 @@ const int TETROMINOES[7][4][4] = {
 };
 
 // === Игровое поле (0 = пусто, 1-7 = цвет фигуры) ===
-// field[y][x] где y - строка (0-19), x - столбец (0-9)
 int field[FIELD_HEIGHT][FIELD_WIDTH];
+int renderedField[FIELD_HEIGHT][FIELD_WIDTH];
+bool tetrisRenderInitialized = false;
+int tetrisLastHudScore = -1;
+int tetrisLastHudLevel = -1;
+int tetrisLastHudLines = -1;
+int tetrisLastHudNextType = -1;
+bool tetrisLastHudGameOver = false;
 
 Piece currentPiece;
 Piece nextPiece;
@@ -147,36 +154,175 @@ Piece createNewPiece() {
   return p;
 }
 
-// === Отрисовка блока ===
-void drawBlock(int x, int y, bool filled) {
-  int px = FIELD_X + x * CELL_SIZE;
-  int py = FIELD_Y + y * CELL_SIZE;
-  if (filled) {
-    display.fillRect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, SSD1306_WHITE);
-  } else {
-    display.drawRect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, SSD1306_WHITE);
+uint16_t tetrisPieceColor(int value) {
+  switch (value) {
+    case 1: return ST77XX_CYAN;
+    case 2: return ST77XX_YELLOW;
+    case 3: return ST77XX_MAGENTA;
+    case 4: return ST77XX_GREEN;
+    case 5: return ST77XX_RED;
+    case 6: return ST77XX_BLUE;
+    case 7: return ST77XX_ORANGE;
+    default: return SSD1306_WHITE;
   }
 }
 
-// === Отрисовка игрового поля ===
-void drawField() {
-  // Рамка поля
-  display.drawRect(FIELD_X - 1, FIELD_Y -1, 
-                   FIELD_WIDTH * CELL_SIZE + 1, 
-                   FIELD_HEIGHT * CELL_SIZE + 1, 
-                   SSD1306_WHITE);
-  
-  // Установленные блоки
+// === Отрисовка блока ===
+void drawTetrisCell(int x, int y, int value) {
+  int px = FIELD_X + x * CELL_SIZE;
+  int py = FIELD_Y + y * CELL_SIZE;
+  display.fillRect(px, py, CELL_SIZE, CELL_SIZE, SSD1306_BLACK);
+
+  if (value >= 1 && value <= 7) {
+    display.fillRect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, tetrisPieceColor(value));
+  } else if (value == TETRIS_GHOST_CELL) {
+    display.drawPixel(px + CELL_SIZE / 2 - 1, py + CELL_SIZE / 2 - 1, UI_SEPARATOR_COLOR);
+  }
+}
+
+void drawBlock(int x, int y, bool filled, uint16_t color = SSD1306_WHITE) {
+  int px = FIELD_X + x * CELL_SIZE;
+  int py = FIELD_Y + y * CELL_SIZE;
+  if (filled) {
+    display.fillRect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, color);
+  } else {
+    display.drawPixel(px + CELL_SIZE / 2 - 1, py + CELL_SIZE / 2 - 1, color);
+  }
+}
+
+void resetTetrisRenderCache() {
+  tetrisRenderInitialized = false;
+  tetrisLastHudScore = -1;
+  tetrisLastHudLevel = -1;
+  tetrisLastHudLines = -1;
+  tetrisLastHudNextType = -1;
+  tetrisLastHudGameOver = false;
   for (int y = 0; y < FIELD_HEIGHT; y++) {
     for (int x = 0; x < FIELD_WIDTH; x++) {
-      if (field[y][x] != 0) {
-        drawBlock(x, y, true);
+      renderedField[y][x] = -1;
+    }
+  }
+}
+
+void drawTetrisFrame() {
+  display.drawFastHLine(0, TETRIS_HUD_HEIGHT, display.width(), UI_SEPARATOR_COLOR);
+}
+
+void drawNextPiecePreview(Piece piece, int x, int y) {
+  const int nextCellSize = 3;
+  for (int py = 0; py < 4; py++) {
+    for (int px = 0; px < 4; px++) {
+      if (getBlock(piece.type, piece.rotation, px, py)) {
+        display.fillRect(x + px * 4, y + py * 4, nextCellSize, nextCellSize, tetrisPieceColor(piece.type + 1));
       }
     }
   }
 }
 
-// === Отрисовка текущей фигуры ===
+void drawTetrisHud(bool gameOver, bool force = false) {
+  bool changed = force ||
+                 score != tetrisLastHudScore ||
+                 level != tetrisLastHudLevel ||
+                 linesCleared != tetrisLastHudLines ||
+                 nextPiece.type != tetrisLastHudNextType ||
+                 gameOver != tetrisLastHudGameOver;
+  if (!changed) return;
+
+  display.fillRect(0, 0, display.width(), TETRIS_HUD_HEIGHT, SSD1306_BLACK);
+  display.setTextSize(1);
+  display.setTextColor(UI_HEADER_COLOR);
+  display.setCursor(0, 1);
+  display.print("L");
+  display.print(level);
+
+  if (!gameOver) {
+    drawNextPiecePreview(nextPiece, (display.width() - 16) / 2, 0);
+  }
+
+  char scoreText[9];
+  snprintf(scoreText, sizeof(scoreText), "%d", score);
+  int scoreX = display.width() - strlen(scoreText) * 6;
+  if (scoreX < 42) scoreX = 42;
+  display.setCursor(scoreX, 1);
+  display.print(scoreText);
+  display.setTextColor(SSD1306_WHITE);
+
+  drawTetrisFrame();
+
+  tetrisLastHudScore = score;
+  tetrisLastHudLevel = level;
+  tetrisLastHudLines = linesCleared;
+  tetrisLastHudNextType = nextPiece.type;
+  tetrisLastHudGameOver = gameOver;
+}
+
+int tetrisVisibleCell(int x, int y, Piece ghost, bool gameOver) {
+  int value = field[y][x];
+  if (!gameOver) {
+    for (int py = 0; py < 4; py++) {
+      for (int px = 0; px < 4; px++) {
+        if (getBlock(currentPiece.type, currentPiece.rotation, px, py)) {
+          int fx = currentPiece.x + px;
+          int fy = currentPiece.y + py;
+          if (fx == x && fy == y) {
+            return currentPiece.type + 1;
+          }
+        }
+      }
+    }
+    if (value == 0) {
+      for (int py = 0; py < 4; py++) {
+        for (int px = 0; px < 4; px++) {
+          if (getBlock(ghost.type, ghost.rotation, px, py)) {
+            int fx = ghost.x + px;
+            int fy = ghost.y + py;
+            if (fx == x && fy == y) {
+              return TETRIS_GHOST_CELL;
+            }
+          }
+        }
+      }
+    }
+  }
+  return value;
+}
+
+void drawTetrisBoard(bool gameOver, bool force = false) {
+  if (!tetrisRenderInitialized || force) {
+    display.clearDisplay();
+    drawTetrisFrame();
+    for (int y = 0; y < FIELD_HEIGHT; y++) {
+      for (int x = 0; x < FIELD_WIDTH; x++) {
+        renderedField[y][x] = -1;
+      }
+    }
+    tetrisRenderInitialized = true;
+    drawTetrisHud(gameOver, true);
+  }
+
+  Piece ghost = currentPiece;
+  if (!gameOver) {
+    ghost = getGhostPiece(currentPiece);
+  }
+
+  for (int y = 0; y < FIELD_HEIGHT; y++) {
+    for (int x = 0; x < FIELD_WIDTH; x++) {
+      int value = tetrisVisibleCell(x, y, ghost, gameOver);
+      if (value != renderedField[y][x]) {
+        drawTetrisCell(x, y, value);
+        renderedField[y][x] = value;
+      }
+    }
+  }
+
+  drawTetrisHud(gameOver);
+}
+
+// Старые обертки оставлены для локальной совместимости с игровыми хелперами.
+void drawField() {
+  drawTetrisBoard(false, true);
+}
+
 void drawPiece(Piece piece) {
   for (int py = 0; py < 4; py++) {
     for (int px = 0; px < 4; px++) {
@@ -184,26 +330,15 @@ void drawPiece(Piece piece) {
         int fx = piece.x + px;
         int fy = piece.y + py;
         if (fy >= 0 && fx >= 0 && fx < FIELD_WIDTH) {
-          drawBlock(fx, fy, true);
+          drawBlock(fx, fy, true, tetrisPieceColor(piece.type + 1));
         }
       }
     }
   }
 }
 
-// === Отрисовка следующей фигуры (в тех же размерах что и в игровом поле) ===
 void drawNextPiece(Piece piece, int x, int y) {
-  const int nextCellSize = CELL_SIZE - 1;  // размер клетки 3x3 (как в игровом поле)
-  for (int py = 0; py < 4; py++) {
-    for (int px = 0; px < 4; px++) {
-      if (getBlock(piece.type, piece.rotation, px, py)) {
-        // Промежуток в 1 пиксель между блоками
-        int px_screen = x + px * (nextCellSize + 1);
-        int py_screen = y + py * (nextCellSize + 1);
-        display.fillRect(px_screen, py_screen, nextCellSize, nextCellSize, SSD1306_WHITE);
-      }
-    }
-  }
+  drawNextPiecePreview(piece, x, y);
 }
 
 // === Вычисление позиции призрака (куда упадет фигура) ===
@@ -222,29 +357,13 @@ Piece getGhostPiece(Piece piece) {
 }
 
 // === Отрисовка призрака фигуры (точки) ===
-void drawGhostPiece(Piece piece) {
-  for (int py = 0; py < 4; py++) {
-    for (int px = 0; px < 4; px++) {
-      if (getBlock(piece.type, piece.rotation, px, py)) {
-        int fx = piece.x + px;
-        int fy = piece.y + py;
-        if (fy >= 0 && fx >= 0 && fx < FIELD_WIDTH) {
-          // Рисуем точку в центре каждого блока (блок 3x3, центр на позиции 1)
-          int blockSize = CELL_SIZE - 1;  // фактический размер блока 3x3
-          int px_screen = FIELD_X + fx * CELL_SIZE + blockSize / 2;
-          int py_screen = FIELD_Y + fy * CELL_SIZE + blockSize / 2;
-          display.drawPixel(px_screen, py_screen, SSD1306_WHITE);
-        }
-      }
-    }
-  }
-}
-
 void playTetrisGame() {
-  // === Поворот дисплея на 90 градусов ===
-  display.setRotation(3);
+  // === Поворот дисплея в портретный режим 80x160 ===
+  display.setRotation(TFT_TETRIS_ROTATION);
   
   // === Инициализация ===
+  display.clearDisplay();
+  resetTetrisRenderCache();
   // Очистка поля
   for (int y = 0; y < FIELD_HEIGHT; y++) {
     for (int x = 0; x < FIELD_WIDTH; x++) {
@@ -262,6 +381,8 @@ void playTetrisGame() {
   unsigned long lastFall = millis();
   unsigned long lastInput = millis();
   unsigned long lastRotate = 0;  // время последнего поворота
+  unsigned long lastRender = 0;
+  const unsigned long renderInterval = 16;
   int fallDelay = 500; // начальная скорость падения (мс)
   
   bool gameOver = false;
@@ -274,7 +395,8 @@ void playTetrisGame() {
     // --- Выход из игры при нажатии обеих кнопок ---
     if (input.lb && input.rb) {
       noTone(BUZZER_PIN);
-      display.setRotation(0);  // возвращаем нормальную ориентацию
+      display.setRotation(TFT_MENU_ROTATION);  // возвращаем нормальную ориентацию меню
+      display.clearDisplay();
       return;
     }
     
@@ -297,7 +419,9 @@ void playTetrisGame() {
       lastFall = millis();
       lastInput = millis();
       lastRotate = 0;
+      lastRender = 0;
       fallDelay = 500;
+      resetTetrisRenderCache();
       
       gameOver = false;
       canHardDrop = true;
@@ -475,65 +599,30 @@ void playTetrisGame() {
     }
     
     // === Отрисовка ===
-    display.clearDisplay();
-    
-    // Игровое поле
-    drawField();
-    
-    // Призрак фигуры (показываем куда упадет) - рисуем перед основной фигурой
-    if (!gameOver) {
-      Piece ghost = getGhostPiece(currentPiece);
-      drawGhostPiece(ghost);
+    unsigned long renderNow = millis();
+    if (renderNow - lastRender >= renderInterval) {
+      lastRender = renderNow;
+      drawTetrisBoard(gameOver);
+
+      if (gameOver) {
+        display.setTextSize(1);
+        int rectWidth = 42;
+        int rectHeight = 26;
+        int rectX = (display.width() - rectWidth) / 2;
+        int rectY = FIELD_Y + FIELD_HEIGHT * CELL_SIZE / 2 - rectHeight / 2;
+        int textX = rectX + 8;
+        int textY = rectY + 5;
+
+        display.fillRect(rectX, rectY, rectWidth, rectHeight, SSD1306_BLACK);
+        display.drawRect(rectX, rectY, rectWidth, rectHeight, UI_SEPARATOR_COLOR);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(textX, textY);
+        display.print("GAME");
+        display.setCursor(textX, textY + 10);
+        display.print("OVER");
+      }
+
+      display.display();
     }
-    
-    // Текущая фигура
-    if (!gameOver) {
-      drawPiece(currentPiece);
-    }
-    
-    // Информация справа от поля
-    display.setTextSize(1);
-    
-    // Уровень в виде L1, L2
-    display.setCursor(50, 4);
-    display.print("L");
-    display.print(level);
-    
-    // Количество линий
-    display.setCursor(50, 128-14);
-    display.printf("%2d", linesCleared);
-    
-    // Следующая фигура
-    if (!gameOver) {
-      drawNextPiece(nextPiece, 48, 20);
-    }
-    
-    if (gameOver) {
-      display.setTextSize(1);
-      
-      // Координаты для текста (центр поля)
-      int textX = FIELD_X + FIELD_WIDTH * CELL_SIZE / 2 - 12;  // центр по X
-      int textY = FIELD_Y + FIELD_HEIGHT * CELL_SIZE / 2 - 8;  // центр по Y
-      
-      // Размеры прямоугольника
-      int rectWidth = 32;
-      int rectHeight = 26;
-      int rectX = textX - 4;
-      int rectY = textY - 4;
-      
-      // Очищаем заливку внутри прямоугольника (черный цвет)
-      display.fillRect(rectX, rectY, rectWidth, rectHeight, SSD1306_BLACK);
-      
-      // Рисуем рамку прямоугольника (белый цвет)
-      display.drawRect(rectX, rectY, rectWidth, rectHeight, SSD1306_WHITE);
-      
-      // Текст в две строки
-      display.setCursor(textX, textY);
-      display.print("GAME");
-      display.setCursor(textX, textY + 10);
-      display.print("OVER");
-    }
-    
-    display.display();
   }
 }

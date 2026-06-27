@@ -23,6 +23,9 @@ static bool otaReady = false;
 static bool otaUpdateInProgress = false;
 static int otaProgress = -1;
 static char otaStatus[32] = "Starting";
+static bool otaUiInitialized = false;
+static unsigned long otaUiLastBatteryDraw = 0;
+static char otaUiRows[5][32];
 
 static bool isOtaWiFiConfigured() {
   return strlen(OTA_SSID) > 0;
@@ -72,49 +75,98 @@ static void restoreEspNowAfterOta() {
   initYellowCar();
 }
 
-static void drawOtaPage() {
-  display.clearDisplay();
+static void resetOtaPageUi() {
+  otaUiInitialized = false;
+  otaUiLastBatteryDraw = 0;
+  for (int i = 0; i < 5; i++) {
+    otaUiRows[i][0] = '\0';
+  }
+}
+
+static int otaPageRowY(int row) {
+  const int rowY = 16;
+  const int rowH = 10;
+  if (row < 2) return rowY + row * rowH;
+  if (row < 4) return rowY + row * rowH + 5;
+  return SCREEN_HEIGHT - rowH;
+}
+
+static bool drawOtaPageRow(int row, const char* text, bool force) {
+  if (!force && strcmp(otaUiRows[row], text) == 0) return false;
+
+  const int textX = 16;
+  const int rowH = 10;
+  int y = otaPageRowY(row);
+  display.fillRect(0, y, SCREEN_WIDTH, rowH, SSD1306_BLACK);
+  if (row == 4) {
+    display.drawLine(0, y - 3, SCREEN_WIDTH - 1, y - 3, UI_SEPARATOR_COLOR);
+  }
   display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(8, 3);
-  display.print("OTA Update");
-  display.drawLine(0, 13, 127, 13, SSD1306_WHITE);
+  display.setTextColor(row == 4 ? UI_FOOTER_COLOR : SSD1306_WHITE);
+  display.setCursor(textX, y);
+  display.print(text);
 
-  display.setCursor(0, 16);
-  display.print("WiFi:");
-  display.print(getOtaWiFiStatus());
+  strncpy(otaUiRows[row], text, sizeof(otaUiRows[row]) - 1);
+  otaUiRows[row][sizeof(otaUiRows[row]) - 1] = '\0';
+  return true;
+}
 
-  display.setCursor(0, 26);
-  display.print("SSID:");
-  for (int i = 0; i < 13 && OTA_SSID[i] != '\0'; i++) {
-    display.print(OTA_SSID[i]);
+static void drawOtaPage() {
+  bool force = !otaUiInitialized;
+  bool changed = false;
+
+  if (force) {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(UI_HEADER_COLOR);
+    display.setCursor(8, 3);
+    display.print("OTA Update");
+    display.drawLine(0, 13, SCREEN_WIDTH - 1, 13, UI_SEPARATOR_COLOR);
+    changed = true;
   }
-  if (strlen(OTA_SSID) > 13) {
-    display.print("...");
-  }
 
-  display.setCursor(0, 36);
+  char line[32];
+  snprintf(line, sizeof(line), "WiFi:%s", getOtaWiFiStatus());
+  changed |= drawOtaPageRow(0, line, force);
+
+  char ssid[18];
+  snprintf(ssid, sizeof(ssid), "%s", OTA_SSID);
+  if (strlen(OTA_SSID) > 17) {
+    ssid[14] = '.';
+    ssid[15] = '.';
+    ssid[16] = '.';
+    ssid[17] = '\0';
+  }
+  snprintf(line, sizeof(line), "SSID:%s", ssid);
+  changed |= drawOtaPageRow(1, line, force);
+
   if (WiFi.status() == WL_CONNECTED) {
-    display.print("IP:");
-    display.print(WiFi.localIP());
+    snprintf(line, sizeof(line), "IP:%s", WiFi.localIP().toString().c_str());
   } else {
-    display.print("IP:--");
+    snprintf(line, sizeof(line), "IP:--");
   }
+  changed |= drawOtaPageRow(2, line, force);
 
-  display.setCursor(0, 46);
-  display.print("OTA:");
   if (otaUpdateInProgress) {
-    display.print("updating...");
+    snprintf(line, sizeof(line), "OTA:updating...");
   } else if (otaProgress >= 0) {
-    display.print(otaProgress);
-    display.print("%");
+    snprintf(line, sizeof(line), "OTA:%d%%", otaProgress);
   } else {
-    display.print(otaStatus);
+    snprintf(line, sizeof(line), "OTA:%s", otaStatus);
+  }
+  changed |= drawOtaPageRow(3, line, force);
+
+  changed |= drawOtaPageRow(4, otaUpdateInProgress ? "Updating..." : "LB - exit", force);
+
+  unsigned long now = millis();
+  if (force || now - otaUiLastBatteryDraw >= 1000) {
+    drawBatteryIcon();
+    otaUiLastBatteryDraw = now;
+    changed = true;
   }
 
-  display.setCursor(0, 56);
-  display.print(otaUpdateInProgress ? "Updating..." : "LB - exit");
-  display.display();
+  if (changed) display.display();
+  otaUiInitialized = true;
 }
 
 static void beginOtaService() {
@@ -170,6 +222,7 @@ void runOtaMode() {
   otaUpdateInProgress = false;
   otaProgress = -1;
   setOtaStatus("Starting");
+  resetOtaPageUi();
 
   stopEspNowForOta();
   WiFi.disconnect(true);

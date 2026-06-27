@@ -38,13 +38,14 @@ MenuDef musicMenu = { "Music", musicItems, 5, &mainMenu, 0 };
 const MenuItemDef settingsItems[] = {
     { "Wi-Fi",        runWiFiSettingsMenu, nullptr },
     { "OTA Update",   runOtaMode, nullptr },
+    { "Display",      runDisplaySettingsMenu, nullptr },
     { "Sound",        runSoundSettingsMenu, nullptr },
     { "Motor",        runMotorSettingsMenu, nullptr },
     { "Yellow Car",   runYellowCarSettingsMenu, nullptr },
     { "Joystick DZ",  changeJoystickDeadzone, getJoyDzValue },
     { "Debug",        toggleDebugLogs, getDebugValue }
 };
-MenuDef settingsMenu = { "Settings", settingsItems, 7, &mainMenu, 0 };
+MenuDef settingsMenu = { "Settings", settingsItems, 8, &mainMenu, 0 };
 
 // --- Настройки Wi-Fi ---
 const MenuItemDef wifiSettingsItems[] = {
@@ -54,6 +55,12 @@ const MenuItemDef wifiSettingsItems[] = {
     { "IP",           doNothing, getIPValue },
 };
 MenuDef wifiSettingsMenu = { "Wi-Fi (in progress)", wifiSettingsItems, 4, &settingsMenu, 0 };
+
+// --- Настройки дисплея ---
+const MenuItemDef displaySettingsItems[] = {
+    { "Test Screen",  runDisplayTest, nullptr },
+};
+MenuDef displaySettingsMenu = { "Display", displaySettingsItems, 1, &settingsMenu, 0 };
 
 // --- Настройки звука---
 const MenuItemDef soundSettingsItems[] = {
@@ -94,6 +101,10 @@ void runSettingsMenu() {
 
 void runWiFiSettingsMenu() {
     switchMenu(&wifiSettingsMenu);
+}
+
+void runDisplaySettingsMenu() {
+    switchMenu(&displaySettingsMenu);
 }
 
 void runSoundSettingsMenu() {

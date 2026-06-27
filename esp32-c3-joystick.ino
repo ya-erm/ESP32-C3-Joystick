@@ -1,13 +1,69 @@
-#include <Wire.h>
 #include <WiFi.h>
+#include <SPI.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Adafruit_ST7735.h>
 #include <Preferences.h>
 
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+// === TFT ST7735 80x160 ===
+// Подключение по SPI. При необходимости поменяй GPIO здесь.
+#define TFT_SCLK 9
+#define TFT_MOSI 8
+#define TFT_CS   20
+#define TFT_DC   5
+#define TFT_RST  -1
+
+#define TFT_DIAGNOSTIC false
+
+#define SCREEN_WIDTH 160
+#define SCREEN_HEIGHT 80
+#define TFT_MENU_ROTATION 3
+#define TFT_TETRIS_ROTATION 2
+#define TFT_INIT_OPTIONS INITR_MINI160x80
+#define TFT_COL_OFFSET 24
+#define TFT_ROW_OFFSET 0
+
+// Панель работает с BGR-порядком каналов при корректной MINI160x80-геометрии.
+// Оставляем имена цветов семантическими для всего скетча.
+#undef ST77XX_RED
+#undef ST77XX_BLUE
+#undef ST77XX_YELLOW
+#undef ST77XX_CYAN
+#undef ST77XX_ORANGE
+#define ST77XX_RED 0x001F
+#define ST77XX_BLUE 0xF800
+#define ST77XX_YELLOW 0x07FF
+#define ST77XX_CYAN 0xFFE0
+#define ST77XX_ORANGE 0x053F
+
+#define SSD1306_BLACK ST77XX_BLACK
+#define SSD1306_WHITE ST77XX_WHITE
+#define UI_HEADER_COLOR ST77XX_YELLOW
+#define UI_FOOTER_COLOR 0x8410
+#define UI_SEPARATOR_COLOR UI_FOOTER_COLOR
+
+class JoystickDisplay : public Adafruit_ST7735 {
+public:
+  JoystickDisplay(SPIClass* spiClass, int8_t cs, int8_t dc, int8_t rst)
+    : Adafruit_ST7735(spiClass, cs, dc, rst) {}
+
+  JoystickDisplay(int8_t cs, int8_t dc, int8_t mosi, int8_t sclk, int8_t rst)
+    : Adafruit_ST7735(cs, dc, mosi, sclk, rst) {}
+
+  void clearDisplay() {
+    fillScreen(SSD1306_BLACK);
+  }
+
+  void setPanelOffset(int8_t col, int8_t row) {
+    setColRowStart(col, row);
+  }
+
+  void display() {
+    // ST7735 рисует сразу в видеопамять дисплея, отдельной отправки буфера нет.
+  }
+};
+
+JoystickDisplay display(&SPI, TFT_CS, TFT_DC, TFT_RST);
 
 // === Пины джойстиков ===
 #define LX_PIN 0
@@ -20,10 +76,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // === Измерение напряжения аккумулятора ===
 #define BATTERY_ADC_PIN 2
-
-// === I2C ===
-#define SDA 8
-#define SCL 9
 
 // === Пин буззера ===
 #define BUZZER_PIN 6
@@ -75,6 +127,72 @@ struct Piece {
   int x;         // позиция X
   int y;         // позиция Y
 };
+
+void drawDiagnosticFrame(JoystickDisplay& tft, const char* label) {
+  tft.fillScreen(ST77XX_RED);
+  delay(350);
+  tft.fillScreen(ST77XX_GREEN);
+  delay(350);
+  tft.fillScreen(ST77XX_BLUE);
+  delay(350);
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setCursor(0, 0);
+  tft.println(label);
+  tft.drawRect(0, 0, tft.width(), tft.height(), ST77XX_WHITE);
+  tft.drawLine(0, 0, tft.width() - 1, tft.height() - 1, ST77XX_YELLOW);
+  tft.drawLine(tft.width() - 1, 0, 0, tft.height() - 1, ST77XX_CYAN);
+  delay(1200);
+}
+
+void runDisplayDiagnostic() {
+  struct PinTest {
+    const char* label;
+    int8_t cs;
+    int8_t dc;
+    int8_t mosi;
+    int8_t sclk;
+  };
+  struct InitTest {
+    const char* label;
+    uint8_t option;
+  };
+
+  const PinTest pinTests[] = {
+    {"CS20 DC5 SDA8 SCL9", 20, 5, 8, 9},
+    {"CS5 DC20 SDA8 SCL9", 5, 20, 8, 9},
+    {"CS20 DC5 SDA9 SCL8", 20, 5, 9, 8},
+    {"CS5 DC20 SDA9 SCL8", 5, 20, 9, 8},
+  };
+  const InitTest initTests[] = {
+    {"MINI_PLUGIN", INITR_MINI160x80_PLUGIN},
+    {"MINI", INITR_MINI160x80},
+    {"BLACKTAB", INITR_BLACKTAB},
+    {"GREENTAB", INITR_GREENTAB},
+    {"REDTAB", INITR_REDTAB},
+  };
+
+  while (true) {
+    for (uint8_t p = 0; p < sizeof(pinTests) / sizeof(pinTests[0]); p++) {
+      for (uint8_t i = 0; i < sizeof(initTests) / sizeof(initTests[0]); i++) {
+        char label[36];
+        snprintf(label, sizeof(label), "%s\n%s", pinTests[p].label, initTests[i].label);
+        Serial.printf("[TFT] %s / %s\n", pinTests[p].label, initTests[i].label);
+        JoystickDisplay testDisplay(
+          pinTests[p].cs,
+          pinTests[p].dc,
+          pinTests[p].mosi,
+          pinTests[p].sclk,
+          TFT_RST
+        );
+        testDisplay.initR(initTests[i].option);
+        testDisplay.setRotation(1);
+        drawDiagnosticFrame(testDisplay, label);
+      }
+    }
+  }
+}
 
 MenuDef* currentMenu = nullptr;
 
@@ -159,8 +277,16 @@ void saveYellowMaxSpeedSetting() {
 
 void setup() {
   Serial.begin(115200);
-  Wire.begin(SDA, SCL);
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  if (TFT_DIAGNOSTIC) {
+    runDisplayDiagnostic();
+    return;
+  }
+
+  SPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
+  display.initR(TFT_INIT_OPTIONS);
+  display.setPanelOffset(TFT_COL_OFFSET, TFT_ROW_OFFSET);
+  display.setSPISpeed(40000000);
+  display.setRotation(TFT_MENU_ROTATION);
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);

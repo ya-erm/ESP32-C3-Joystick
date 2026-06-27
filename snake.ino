@@ -1,219 +1,282 @@
 extern bool sound;
 
 void playSnakeGame() {
-    const int screenW = 128;
-    const int screenH = 64;
-    const int topOffset = 16;  // верхние 16 пикселей (желтые)
-    const int borderWidth = 1;  // ширина рамки
-    const int cellSize = 4;  // размер "клетки"
-    
-    // Доступное пространство для игры (с учетом рамки)
-    const int gameAreaW = screenW - 2 * borderWidth;  // 126
-    const int gameAreaH = screenH - topOffset - 2 * borderWidth;  // 46
-    const int gameAreaX = borderWidth;  // 1
-    const int gameAreaY = topOffset + borderWidth;  // 17
-    
-    const int cellsX = gameAreaW / cellSize;  // 31
-    const int cellsY = gameAreaH / cellSize;  // 11
-  
-    // === Змейка ===
-    int snakeX[200];
-    int snakeY[200];
-    int snakeLength = 4;
-    int dirX = 1;
-    int dirY = 0;
-  
-    // начальная позиция
+  const int screenW = SCREEN_WIDTH;
+  const int screenH = SCREEN_HEIGHT;
+  const int borderWidth = 1;
+  const int cellSize = 5;
+  const int segmentSize = 4;
+  const int gameAreaX = 0;
+  const int gameAreaY = 0;
+  const int gameAreaW = screenW;
+  const int gameAreaH = screenH;
+  const int playX = gameAreaX + borderWidth;
+  const int playY = gameAreaY + borderWidth;
+  const int cellsX = (gameAreaW - 2 * borderWidth) / cellSize;
+  const int cellsY = (gameAreaH - 2 * borderWidth) / cellSize;
+  const int scoreY = 4;
+  const int scoreClearW = 30;
+  const int scoreClearH = 8;
+  const int scoreClearX = (screenW - scoreClearW) / 2;
+  const uint16_t borderColor = UI_SEPARATOR_COLOR;
+  const uint16_t scoreColor = ST77XX_YELLOW;
+  const uint16_t snakeColor = ST77XX_GREEN;
+  const uint16_t foodColor = ST77XX_RED;
+
+  int snakeX[500];
+  int snakeY[500];
+  int snakeLength = 4;
+  int dirX = 1;
+  int dirY = 0;
+
+  int foodX = 0;
+  int foodY = 0;
+  int score = 0;
+  unsigned long lastMove = 0;
+  int speed = 200;
+  bool gameOver = false;
+
+  auto rectsOverlap = [](int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh) {
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+  };
+
+  auto cellPixelX = [&](int cellX) { return playX + cellX * cellSize; };
+  auto cellPixelY = [&](int cellY) { return playY + cellY * cellSize; };
+
+  auto clearCell = [&](int cellX, int cellY) {
+    display.fillRect(cellPixelX(cellX), cellPixelY(cellY), segmentSize, segmentSize, SSD1306_BLACK);
+  };
+
+  auto drawFood = [&]() {
+    display.fillRect(cellPixelX(foodX), cellPixelY(foodY), segmentSize, segmentSize, foodColor);
+  };
+
+  auto drawSnakeSegment = [&](int index) {
+    display.fillRect(cellPixelX(snakeX[index]), cellPixelY(snakeY[index]), segmentSize, segmentSize, snakeColor);
+  };
+
+  auto drawScore = [&]() {
+    char scoreText[8];
+    snprintf(scoreText, sizeof(scoreText), "%d", score);
+    int scoreX = (screenW - strlen(scoreText) * 6) / 2;
+
+    display.fillRect(scoreClearX, scoreY, scoreClearW, scoreClearH, SSD1306_BLACK);
+    if (rectsOverlap(cellPixelX(foodX), cellPixelY(foodY), segmentSize, segmentSize,
+                     scoreClearX, scoreY, scoreClearW, scoreClearH)) {
+      drawFood();
+    }
+    for (int i = snakeLength - 1; i >= 0; i--) {
+      if (rectsOverlap(cellPixelX(snakeX[i]), cellPixelY(snakeY[i]), segmentSize, segmentSize,
+                       scoreClearX, scoreY, scoreClearW, scoreClearH)) {
+        drawSnakeSegment(i);
+      }
+    }
+
+    display.setTextSize(1);
+    display.setTextColor(scoreColor);
+    display.setCursor(scoreX, scoreY);
+    display.print(scoreText);
+    display.setTextColor(SSD1306_WHITE);
+  };
+
+  auto spawnFood = [&]() {
+    bool onSnake;
+    do {
+      onSnake = false;
+      foodX = random(cellsX);
+      foodY = random(cellsY);
+      for (int i = 0; i < snakeLength; i++) {
+        if (foodX == snakeX[i] && foodY == snakeY[i]) {
+          onSnake = true;
+          break;
+        }
+      }
+    } while (onSnake);
+  };
+
+  auto drawFullGame = [&]() {
+    display.clearDisplay();
+    display.drawRect(gameAreaX, gameAreaY, gameAreaW, gameAreaH, borderColor);
+    drawFood();
+    for (int i = snakeLength - 1; i >= 0; i--) {
+      drawSnakeSegment(i);
+    }
+    drawScore();
+    display.display();
+  };
+
+  auto drawPause = [&]() {
+    const int boxW = 78;
+    const int boxH = 22;
+    const int boxX = (screenW - boxW) / 2;
+    const int boxY = (screenH - boxH) / 2;
+    display.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
+    display.drawRect(boxX, boxY, boxW, boxH, borderColor);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor((screenW - 30) / 2, (screenH - 8) / 2);
+    display.print("Pause");
+    display.setTextColor(SSD1306_WHITE);
+    display.display();
+  };
+
+  auto waitForRbRelease = [&]() {
+    while (readJoysticks().rb) {
+      delay(20);
+    }
+  };
+
+  auto runPause = [&]() {
+    drawPause();
+    waitForRbRelease();
+    while (true) {
+      JoystickData pauseInput = readJoysticks();
+      if (pauseInput.lb) {
+        noTone(BUZZER_PIN);
+        display.clearDisplay();
+        return true;
+      }
+      if (pauseInput.rb) {
+        waitForRbRelease();
+        drawFullGame();
+        lastMove = millis();
+        return false;
+      }
+      delay(50);
+    }
+  };
+
+  auto resetGame = [&]() {
+    snakeLength = 4;
+    dirX = 1;
+    dirY = 0;
     for (int i = 0; i < snakeLength; i++) {
       snakeX[i] = cellsX / 2 - i;
       snakeY[i] = cellsY / 2;
     }
-  
-    // === Еда ===
-    int foodX = random(cellsX);
-    int foodY = random(cellsY);
-  
-    int score = 0;
-    unsigned long lastMove = 0;
-    int speed = 200; // миллисекунд между шагами
-    bool gameOver = false;
-  
-    while (true) {
-      // === Экран Game Over ===
-      if (gameOver) {
-        display.clearDisplay();
-        
-        // Отрисовка игрового поля (змейка, еда, рамка, очки)
-        // Рамка игрового поля
-        display.drawRect(gameAreaX, gameAreaY, gameAreaW, gameAreaH, SSD1306_WHITE);
-        
-        // Еда (пустая рамка 3x3)
-        int foodPixelX = gameAreaX + borderWidth + foodX * cellSize;
-        int foodPixelY = gameAreaY + borderWidth + foodY * cellSize;
-        display.drawRect(foodPixelX, foodPixelY, 3, 3, SSD1306_WHITE);
-        
-        // Змейка
-        for (int i = 0; i < snakeLength; i++) {
-          int pixelX = gameAreaX + borderWidth + snakeX[i] * cellSize;
-          int pixelY = gameAreaY + borderWidth + snakeY[i] * cellSize;
-          
-          if (i == 0) {
-            // Голова - заполненная
-            display.fillRect(pixelX, pixelY, 3, 3, SSD1306_WHITE);
-          } else {
-            // Тело - пустая рамка
-            display.drawRect(pixelX, pixelY, 3, 3, SSD1306_WHITE);
-          }
+    score = 0;
+    speed = 200;
+    lastMove = millis();
+    gameOver = false;
+    spawnFood();
+
+    display.clearDisplay();
+    display.drawRect(gameAreaX, gameAreaY, gameAreaW, gameAreaH, borderColor);
+    drawFood();
+    for (int i = snakeLength - 1; i >= 0; i--) {
+      drawSnakeSegment(i);
+    }
+    drawScore();
+    display.display();
+  };
+
+  auto drawGameOver = [&]() {
+    display.fillRect((screenW - 78) / 2, (screenH - 22) / 2, 78, 22, SSD1306_BLACK);
+    display.drawRect((screenW - 78) / 2, (screenH - 22) / 2, 78, 22, SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor((screenW - 54) / 2, (screenH - 8) / 2);
+    display.print("Game Over");
+    drawScore();
+    display.display();
+  };
+
+  resetGame();
+
+  while (true) {
+    if (gameOver) {
+      drawGameOver();
+      while (true) {
+        JoystickData input = readJoysticks();
+        if (input.rb) {
+          resetGame();
+          break;
         }
-        
-        // Счёт (в верхней части, но не в игровом поле)
-        display.setTextSize(1);
-        display.setCursor((screenW / 2) - 3, 4);
-        display.printf("%d", score);
-        
-        // Рамка для Game Over (пустая заливка) поверх игрового поля
-        const int gameOverW = 72;
-        const int gameOverH = 20;
-        const int gameOverX = (screenW - gameOverW) / 2;
-        const int gameOverY = (screenH - gameOverH + topOffset) / 2;
-        display.drawRect(gameOverX, gameOverY, gameOverW, gameOverH, SSD1306_WHITE);
-        
-        // Текст "Game Over"
-        display.setTextSize(1);
-        display.setTextColor(SSD1306_WHITE);
-        int textX = gameOverX + (gameOverW - 9 * 6) / 2; // "Game Over" = 9 символов * 6 пикселей
-        int textY = gameOverY + (gameOverH - 8) / 2; // высота текста = 8 пикселей
-        display.setCursor(textX, textY);
-        display.print("Game Over");
-        
-        display.display();
-        
-        // Обработка кнопок в состоянии Game Over
-        while (true) {
-          JoystickData input = readJoysticks();
-          
-          if (input.rb) {
-            // Перезапуск игры
-            gameOver = false;
-            // Сброс всех переменных
-            snakeLength = 4;
-            dirX = 1;
-            dirY = 0;
-            for (int i = 0; i < snakeLength; i++) {
-              snakeX[i] = cellsX / 2 - i;
-              snakeY[i] = cellsY / 2;
-            }
-            foodX = random(cellsX);
-            foodY = random(cellsY);
-            score = 0;
-            speed = 200;
-            lastMove = millis();
-            break;
-          }
-          
-          if (input.lb) {
-            // Выход из игры
-            noTone(BUZZER_PIN);
-            return;
-          }
-          
-          delay(50); // Небольшая задержка для снижения нагрузки
+        if (input.lb) {
+          noTone(BUZZER_PIN);
+          display.clearDisplay();
+          return;
         }
-        continue; // Продолжаем игровой цикл после перезапуска
+        delay(50);
       }
-      // --- Чтение джойстиков ---
-      JoystickData input = readJoysticks();
-      
-      // --- Выход из игры при нажатии обеих кнопок ---
-      if (input.lb && input.rb) {
-        noTone(BUZZER_PIN);
-        return;
+      continue;
+    }
+
+    JoystickData input = readJoysticks();
+
+    if (input.lb && input.rb) {
+      noTone(BUZZER_PIN);
+      display.clearDisplay();
+      return;
+    }
+    if (input.rb) {
+      if (runPause()) return;
+      continue;
+    }
+
+    int moveX = 0, moveY = 0;
+    if (input.lx > 50 || input.rx > 50) moveX = 1;
+    else if (input.lx < -50 || input.rx < -50) moveX = -1;
+    else if (input.ly > 50 || input.ry > 50) moveY = -1;
+    else if (input.ly < -50 || input.ry < -50) moveY = 1;
+
+    if (moveX != 0 && dirX == 0) { dirX = moveX; dirY = 0; }
+    else if (moveY != 0 && dirY == 0) { dirY = moveY; dirX = 0; }
+
+    if (millis() - lastMove > speed) {
+      lastMove = millis();
+
+      int oldTailX = snakeX[snakeLength - 1];
+      int oldTailY = snakeY[snakeLength - 1];
+
+      for (int i = snakeLength - 1; i > 0; i--) {
+        snakeX[i] = snakeX[i - 1];
+        snakeY[i] = snakeY[i - 1];
       }
-  
-      // --- Определение направления ---
-      int moveX = 0, moveY = 0;
-      if (input.lx > 50 || input.rx > 50) moveX = 1;
-      else if (input.lx < -50 || input.rx < -50) moveX = -1;
-      else if (input.ly > 50 || input.ry > 50) moveY = -1;
-      else if (input.ly < -50 || input.ry < -50) moveY = 1;
-      
-      // --- Запрет на обратный ход ---
-      if (moveX != 0 && dirX == 0) { dirX = moveX; dirY = 0; }
-      else if (moveY != 0 && dirY == 0) { dirY = moveY; dirX = 0; }
-  
-      // --- Движение змейки ---
-      if (millis() - lastMove > speed) {
-        lastMove = millis();
-  
-        // Сдвигаем тело
-        for (int i = snakeLength - 1; i > 0; i--) {
-          snakeX[i] = snakeX[i - 1];
-          snakeY[i] = snakeY[i - 1];
+
+      snakeX[0] += dirX;
+      snakeY[0] += dirY;
+
+      if (snakeX[0] < 0 || snakeX[0] >= cellsX ||
+          snakeY[0] < 0 || snakeY[0] >= cellsY) {
+        if (sound) tone(BUZZER_PIN, 200, 400);
+        gameOver = true;
+        continue;
+      }
+
+      bool hitSelf = false;
+      for (int i = 1; i < snakeLength; i++) {
+        if (snakeX[0] == snakeX[i] && snakeY[0] == snakeY[i]) {
+          hitSelf = true;
+          break;
         }
-  
-        // Голова
-        snakeX[0] += dirX;
-        snakeY[0] += dirY;
-  
-        // Проверка выхода за пределы — смерть
-        if (snakeX[0] < 0 || snakeX[0] >= cellsX ||
-            snakeY[0] < 0 || snakeY[0] >= cellsY) {
-          if (sound) tone(BUZZER_PIN, 200, 400);
-          gameOver = true;
-          continue;
-        }
-  
-        // Проверка самоудара
-        for (int i = 1; i < snakeLength; i++) {
-          if (snakeX[0] == snakeX[i] && snakeY[0] == snakeY[i]) {
-            if (sound) tone(BUZZER_PIN, 200, 400);
-            gameOver = true;
-            continue;
-          }
-        }
-  
-        // Проверка еды
-        if (snakeX[0] == foodX && snakeY[0] == foodY) {
-          if (sound) tone(BUZZER_PIN, 1000, 80);
+      }
+      if (hitSelf) {
+        if (sound) tone(BUZZER_PIN, 200, 400);
+        gameOver = true;
+        continue;
+      }
+
+      bool ateFood = snakeX[0] == foodX && snakeY[0] == foodY;
+      if (ateFood) {
+        if (sound) tone(BUZZER_PIN, 1000, 80);
+        if (snakeLength < 500) {
+          snakeX[snakeLength] = oldTailX;
+          snakeY[snakeLength] = oldTailY;
           snakeLength++;
-          score++;
-          if (speed > 60) speed -= 5;  // ускоряем игру
-          foodX = random(cellsX);
-          foodY = random(cellsY);
         }
-  
-        // === Отрисовка ===
-        display.clearDisplay();
-  
-        // Рамка игрового поля
-        display.drawRect(gameAreaX, gameAreaY, gameAreaW, gameAreaH, SSD1306_WHITE);
-  
-        // Еда (пустая рамка 3x3)
-        int foodPixelX = gameAreaX + borderWidth + foodX * cellSize;
-        int foodPixelY = gameAreaY + borderWidth + foodY * cellSize;
-        display.drawRect(foodPixelX, foodPixelY, 3, 3, SSD1306_WHITE);
-  
-        // Змейка
-        for (int i = 0; i < snakeLength; i++) {
-          int pixelX = gameAreaX + borderWidth + snakeX[i] * cellSize;
-          int pixelY = gameAreaY + borderWidth + snakeY[i] * cellSize;
-          
-          if (i == 0) {
-            // Голова - заполненная
-            display.fillRect(pixelX, pixelY, 3, 3, SSD1306_WHITE);
-          } else {
-            // Тело - пустая рамка
-            display.drawRect(pixelX, pixelY, 3, 3, SSD1306_WHITE);
-          }
-        }
-  
-        // Счёт (в верхней части, но не в игровом поле)
-        display.setTextSize(1);
-        display.setCursor((screenW / 2) - 3, 4);
-        display.printf("%d", score);
-  
-        display.display();
+        score++;
+        if (speed > 60) speed -= 5;
+        spawnFood();
+      } else {
+        clearCell(oldTailX, oldTailY);
       }
+
+      drawFood();
+      drawSnakeSegment(0);
+      drawScore();
+      display.drawRect(gameAreaX, gameAreaY, gameAreaW, gameAreaH, borderColor);
+      display.display();
     }
   }
-  
+}

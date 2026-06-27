@@ -12,6 +12,19 @@ extern bool debug;
 
 bool carEspNowReady = false;
 
+const int CAR_UI_HEADER_HEIGHT = 14;
+const int CAR_UI_ROW_Y = 16;
+const int CAR_UI_ROW_HEIGHT = 10;
+const int CAR_UI_ROW_GAP = 5;
+const int CAR_UI_TEXT_X = 16;
+const int CAR_UI_ROW_COUNT = 5;
+const unsigned long CAR_UI_REFRESH_INTERVAL = 50;
+
+bool carUiInitialized = false;
+unsigned long carUiLastDisplayRedraw = 0;
+unsigned long carUiLastBatteryRedraw = 0;
+char carUiRows[CAR_UI_ROW_COUNT][28];
+
 void initCar() {
   Serial.println("[Car] init...");
   WiFi.mode(WIFI_STA);
@@ -56,6 +69,94 @@ void sendCarCommand(const char* cmd) {
   }
 }
 
+void drawCarControlHeader() {
+  display.fillRect(0, 0, SCREEN_WIDTH, CAR_UI_HEADER_HEIGHT, SSD1306_BLACK);
+  display.setTextSize(1);
+  display.setTextColor(UI_HEADER_COLOR);
+  display.setCursor(8, 3);
+  display.print("Car Control");
+  display.drawLine(0, 13, SCREEN_WIDTH - 1, 13, UI_SEPARATOR_COLOR);
+}
+
+void resetCarControlUi() {
+  carUiInitialized = false;
+  carUiLastDisplayRedraw = 0;
+  carUiLastBatteryRedraw = 0;
+  for (int i = 0; i < CAR_UI_ROW_COUNT; i++) {
+    carUiRows[i][0] = '\0';
+  }
+}
+
+bool drawCarControlRow(int row, const char* text, bool force) {
+  if (!force && strcmp(carUiRows[row], text) == 0) return false;
+
+  int y;
+  if (row < 2) {
+    y = CAR_UI_ROW_Y + row * CAR_UI_ROW_HEIGHT;
+  } else if (row < 4) {
+    y = CAR_UI_ROW_Y + row * CAR_UI_ROW_HEIGHT + CAR_UI_ROW_GAP;
+  } else {
+    y = SCREEN_HEIGHT - CAR_UI_ROW_HEIGHT;
+  }
+
+  display.fillRect(0, y, SCREEN_WIDTH, CAR_UI_ROW_HEIGHT, SSD1306_BLACK);
+  if (row == CAR_UI_ROW_COUNT - 1) {
+    display.drawLine(0, y - 3, SCREEN_WIDTH - 1, y - 3, UI_SEPARATOR_COLOR);
+  }
+  display.setTextSize(1);
+  display.setTextColor(row == CAR_UI_ROW_COUNT - 1 ? UI_FOOTER_COLOR : SSD1306_WHITE);
+  display.setCursor(CAR_UI_TEXT_X, y);
+  display.print(text);
+
+  strncpy(carUiRows[row], text, sizeof(carUiRows[row]) - 1);
+  carUiRows[row][sizeof(carUiRows[row]) - 1] = '\0';
+  return true;
+}
+
+void drawCarControlUi(
+  const JoystickData& input,
+  int m1,
+  int m2,
+  int m3,
+  int m4
+) {
+  bool force = !carUiInitialized;
+  bool changed = false;
+
+  if (force) {
+    display.clearDisplay();
+    drawCarControlHeader();
+    changed = true;
+  }
+
+  char line[28];
+  snprintf(line, sizeof(line), "LX:%4d %c  RX:%4d %c", input.lx, input.lhd, input.rx, input.rhd);
+  changed |= drawCarControlRow(0, line, force);
+
+  snprintf(line, sizeof(line), "LY:%4d %c  RY:%4d %c", input.ly, input.lvd, input.ry, input.rvd);
+  changed |= drawCarControlRow(1, line, force);
+
+  snprintf(line, sizeof(line), "M1:%4d    M2:%4d", m1, m2);
+  changed |= drawCarControlRow(2, line, force);
+
+  snprintf(line, sizeof(line), "M3:%4d    M4:%4d", m3, m4);
+  changed |= drawCarControlRow(3, line, force);
+
+  snprintf(line, sizeof(line), "LB - exit");
+  changed |= drawCarControlRow(4, line, force);
+
+  unsigned long now = millis();
+  if (force || now - carUiLastBatteryRedraw >= 1000) {
+    drawBatteryIcon();
+    carUiLastBatteryRedraw = now;
+    changed = true;
+  }
+
+  if (changed) display.display();
+  carUiInitialized = true;
+  carUiLastDisplayRedraw = now;
+}
+
 void runCarMode() {
   Serial.println("[Car] runCarMode enter");
   if (!carEspNowReady) {
@@ -70,6 +171,7 @@ void runCarMode() {
 
   unsigned long lastSend = 0;
   const unsigned long sendInterval = 50;
+  resetCarControlUi();
 
   while (true) {
     JoystickData input = readJoysticks();
@@ -123,25 +225,14 @@ void runCarMode() {
       lastSend = millis();
     }
 
-    // Дисплей как в Status
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setCursor(8, 3);
-    display.print("Car Control");
-    display.drawLine(0, 13, 127, 13, SSD1306_WHITE);
-    int l0 = 16;
-    display.setCursor(0, l0);
-    display.printf(" Lx:%4d %c  Rx:%4d %c", input.lx, input.lhd, input.rx, input.rhd);
-    display.setCursor(0, l0 + 8);
-    display.printf(" Ly:%4d %c  Ry:%4d %c", input.ly, input.lvd, input.ry, input.rvd);
-    display.setCursor(0, l0 + 20);
-    display.printf(" M3:%4d    M4:%4d", ml, mr);
-    display.setCursor(0, l0 + 28);
-    display.printf(" M1:%4d    M2:%4d", ml, mr);
-    display.setCursor(0, l0 + 40);
-    display.printf(" LB - exit");
-    drawBatteryIcon();
-    display.display();
+    unsigned long now = millis();
+    if (!carUiInitialized || now - carUiLastDisplayRedraw >= CAR_UI_REFRESH_INTERVAL) {
+      drawCarControlUi(input, m1, m2, m3, m4);
+    } else if (now - carUiLastBatteryRedraw >= 1000) {
+      drawBatteryIcon();
+      display.display();
+      carUiLastBatteryRedraw = now;
+    }
 
     delay(20);
   }
