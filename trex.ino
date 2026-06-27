@@ -1,10 +1,12 @@
 extern bool sound;
 
-static const int TREX_SCREEN_W = 128;
-static const int TREX_SCREEN_H = 64;
-static const int TREX_GROUND_Y = 54;
-static const int TREX_PLAYER_X = 10;
-static const int TREX_SAFE_ZONE = 34;
+static const int TREX_SCREEN_W = SCREEN_WIDTH;
+static const int TREX_SCREEN_H = SCREEN_HEIGHT;
+static const int TREX_HUD_H = 10;
+static const int TREX_FOOTER_H = 11;
+static const int TREX_GROUND_Y = SCREEN_HEIGHT - 12;
+static const int TREX_PLAYER_X = 14;
+static const int TREX_SAFE_ZONE = 44;
 static const int TREX_LIVES_START = 3;
 static const int TREX_LIVES_MAX = 5;
 static const int TREX_JUMP_MOMENTUM = 8;
@@ -21,6 +23,49 @@ static const bool TREX_ENABLE_MULTI_CACTI = true;
 static const int TREX_MULTI_CACTI_SCORE = 650;
 static const int TREX_MULTI_CACTI_CHANCE = 35;
 static const bool TREX_ENABLE_NIGHT_MODE = false;
+static const int TREX_RENDER_TILE = 8;
+
+static GFXcanvas16 trexCanvas(TREX_SCREEN_W, TREX_SCREEN_H);
+static uint16_t trexPreviousFrame[TREX_SCREEN_W * TREX_SCREEN_H];
+static bool trexPreviousFrameValid = false;
+
+static void trexInvalidateFrame() {
+  trexPreviousFrameValid = false;
+}
+
+static void trexFlushFrame() {
+  uint16_t* frame = trexCanvas.getBuffer();
+  if (!trexPreviousFrameValid) {
+    display.drawRGBBitmap(0, 0, frame, TREX_SCREEN_W, TREX_SCREEN_H);
+    memcpy(trexPreviousFrame, frame, sizeof(trexPreviousFrame));
+    trexPreviousFrameValid = true;
+    return;
+  }
+
+  for (int y = 0; y < TREX_SCREEN_H; y += TREX_RENDER_TILE) {
+    int h = min(TREX_RENDER_TILE, TREX_SCREEN_H - y);
+    for (int x = 0; x < TREX_SCREEN_W; x += TREX_RENDER_TILE) {
+      int w = min(TREX_RENDER_TILE, TREX_SCREEN_W - x);
+      bool dirty = false;
+      for (int row = 0; row < h && !dirty; row++) {
+        int offset = (y + row) * TREX_SCREEN_W + x;
+        for (int col = 0; col < w; col++) {
+          if (frame[offset + col] != trexPreviousFrame[offset + col]) {
+            dirty = true;
+            break;
+          }
+        }
+      }
+      if (!dirty) continue;
+      for (int row = 0; row < h; row++) {
+        int offset = (y + row) * TREX_SCREEN_W + x;
+        display.drawRGBBitmap(x, y + row, frame + offset, w, 1);
+        memcpy(trexPreviousFrame + offset, frame + offset, w * sizeof(uint16_t));
+      }
+    }
+  }
+}
+
 
 static const uint8_t trex_up_1s_bitmap[] PROGMEM = {
 0x16, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xfc, 0xfe, 0xfa,
@@ -140,6 +185,7 @@ static void trexDrawCactus(const TrexObstacle& obstacle);
 static void trexDrawPterodactyl(const TrexObstacle& obstacle, bool wingUp);
 static void trexDrawHeart(int x, int y);
 static void trexDrawLives(int lives);
+static void trexDrawFooter(const char* leftText, const char* rightText);
 static void trexDrawGround(int offset);
 static bool trexRectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh);
 static bool trexPlayerHitsObstacle(int bottomY, bool ducking, const TrexObstacle& obstacle);
@@ -152,7 +198,7 @@ static void trexResetObstacles(TrexObstacle obstacles[], int count);
 static void trexDrawGame(uint16_t score, uint16_t hiScore, int lives, int playerBottom,
                          bool ducking, bool dead, bool blinkOn, bool jumping, TrexObstacle obstacles[],
                          int obstacleCount, const TrexHeart& heart, int groundOffset,
-                         bool night, bool wingUp, bool gameOver);
+                         bool night, bool wingUp, bool gameOver, bool paused);
 
 static uint16_t trexLoadHiScore() {
   preferences.begin("games", true);
@@ -191,7 +237,7 @@ static void trexDrawSprite(int x, int y, const uint8_t* bitmap, uint8_t visibleW
       for (uint8_t bit = 0; bit < 8; bit++) {
         uint8_t sy = rowByte * 8 + bit;
         if (sy >= h) break;
-        if (col & (1 << bit)) display.drawPixel(x + sx, y + sy, SSD1306_WHITE);
+        if (col & (1 << bit)) trexCanvas.drawPixel(x + sx, y + sy, SSD1306_WHITE);
       }
     }
   }
@@ -225,7 +271,7 @@ static void trexDrawPlayer(int bottomY, bool ducking, bool dead, bool blinkOn, b
   if (blinkOn) return;
   const uint8_t* bitmap = trexPlayerBitmap(ducking, jumping, score);
   trexDrawSpriteBottom(TREX_PLAYER_X, bottomY, bitmap);
-  if (dead) display.drawPixel(TREX_PLAYER_X + 14, bottomY - trexSpriteHeight(bitmap) + 4, SSD1306_BLACK);
+  if (dead) trexCanvas.drawPixel(TREX_PLAYER_X + 14, bottomY - trexSpriteHeight(bitmap) + 4, SSD1306_BLACK);
 }
 
 static void trexDrawCactus(const TrexObstacle& obstacle) {
@@ -238,42 +284,57 @@ static void trexDrawPterodactyl(const TrexObstacle& obstacle, bool wingUp) {
 }
 
 static void trexDrawHeart(int x, int y) {
-  display.drawPixel(x + 1, y, SSD1306_WHITE);
-  display.drawPixel(x + 3, y, SSD1306_WHITE);
-  display.drawFastHLine(x, y + 1, 5, SSD1306_WHITE);
-  display.drawFastHLine(x + 1, y + 2, 3, SSD1306_WHITE);
-  display.drawPixel(x + 2, y + 3, SSD1306_WHITE);
+  trexCanvas.drawPixel(x + 1, y, ST77XX_RED);
+  trexCanvas.drawPixel(x + 3, y, ST77XX_RED);
+  trexCanvas.drawFastHLine(x, y + 1, 5, ST77XX_RED);
+  trexCanvas.drawFastHLine(x, y + 2, 5, ST77XX_RED);
+  trexCanvas.drawFastHLine(x + 1, y + 3, 3, ST77XX_RED);
+  trexCanvas.drawPixel(x + 2, y + 4, ST77XX_RED);
 }
 
 static void trexDrawLives(int lives) {
   uint8_t visibleWidth = min(31, 6 * lives + 1);
   uint8_t h = trexSpriteHeight(hearts_5x_bitmap);
   uint8_t byteRows = (h + 7) / 8;
-  int x = 95;
-  int y = 8;
+  int x = TREX_SCREEN_W - visibleWidth - 2;
+  int y = 2;
   for (uint8_t rowByte = 0; rowByte < byteRows; rowByte++) {
     for (uint8_t sx = 0; sx < visibleWidth; sx++) {
       uint8_t col = pgm_read_byte(hearts_5x_bitmap + 2 + rowByte * 31 + sx);
       for (uint8_t bit = 0; bit < 8; bit++) {
         uint8_t sy = rowByte * 8 + bit;
         if (sy >= h) break;
-        if (col & (1 << bit)) display.drawPixel(x + sx, y + sy, SSD1306_WHITE);
+        if (col & (1 << bit)) trexCanvas.drawPixel(x + sx, y + sy, ST77XX_RED);
       }
     }
   }
 }
 
+static void trexDrawFooter(const char* leftText, const char* rightText) {
+  const int footerY = TREX_GROUND_Y + 1;
+  trexCanvas.fillRect(0, footerY, TREX_SCREEN_W, TREX_SCREEN_H - footerY, SSD1306_BLACK);
+  trexCanvas.setTextSize(1);
+  trexCanvas.setTextColor(UI_FOOTER_COLOR);
+  trexCanvas.setCursor(0, footerY + 2);
+  trexCanvas.print(leftText);
+  int rightX = TREX_SCREEN_W - strlen(rightText) * 6;
+  trexCanvas.setCursor(max(0, rightX), footerY + 2);
+  trexCanvas.print(rightText);
+  trexCanvas.setTextColor(SSD1306_WHITE);
+}
+
+
 static void trexDrawGround(int offset) {
-  display.drawFastHLine(0, TREX_GROUND_Y, TREX_SCREEN_W, SSD1306_WHITE);
+  trexCanvas.drawFastHLine(0, TREX_GROUND_Y, TREX_SCREEN_W, UI_SEPARATOR_COLOR);
   for (int x = -offset; x < TREX_SCREEN_W; x += 16) {
-    display.drawPixel(x + 3, TREX_GROUND_Y + 3, SSD1306_WHITE);
-    display.drawFastHLine(x + 9, TREX_GROUND_Y + 5, 4, SSD1306_WHITE);
+    trexCanvas.drawPixel(x + 3, TREX_GROUND_Y + 3, UI_SEPARATOR_COLOR);
+    trexCanvas.drawFastHLine(x + 9, TREX_GROUND_Y + 5, 4, UI_SEPARATOR_COLOR);
   }
 }
 
 static void trexDrawCactusGroundCutout(const TrexObstacle& obstacle) {
-  display.drawPixel(constrain(obstacle.x + trexCactusLeftGapOffset(obstacle), 0, TREX_SCREEN_W - 1), TREX_GROUND_Y, SSD1306_BLACK);
-  display.drawPixel(constrain(obstacle.x + trexCactusRightGapOffset(obstacle), 0, TREX_SCREEN_W - 1), TREX_GROUND_Y, SSD1306_BLACK);
+  trexCanvas.drawPixel(constrain(obstacle.x + trexCactusLeftGapOffset(obstacle), 0, TREX_SCREEN_W - 1), TREX_GROUND_Y, SSD1306_BLACK);
+  trexCanvas.drawPixel(constrain(obstacle.x + trexCactusRightGapOffset(obstacle), 0, TREX_SCREEN_W - 1), TREX_GROUND_Y, SSD1306_BLACK);
 }
 
 static bool trexRectsOverlap(int ax, int ay, int aw, int ah, int bx, int by, int bw, int bh) {
@@ -370,7 +431,7 @@ static void trexSpawnObstacle(TrexObstacle obstacles[], int count, uint16_t scor
     obstacles[i].h = trexSpriteHeight(bitmap);
     if (bird) {
       obstacles[i].w = trexSpriteWidth(bitmap);
-      int positions[] = {15, 25, 25, 35};
+      int positions[] = {TREX_HUD_H + 8, TREX_HUD_H + 18, TREX_HUD_H + 18, TREX_HUD_H + 28};
       obstacles[i].y = positions[random(4)];
     } else {
       obstacles[i].w = multiCactus ? trexSpriteWidth(bitmap) : trexSingleCactusWidth(obstacles[i].type);
@@ -394,10 +455,25 @@ static void trexResetObstacles(TrexObstacle obstacles[], int count) {
 static void trexDrawGame(uint16_t score, uint16_t hiScore, int lives, int playerBottom,
                          bool ducking, bool dead, bool blinkOn, bool jumping, TrexObstacle obstacles[],
                          int obstacleCount, const TrexHeart& heart, int groundOffset,
-                         bool night, bool wingUp, bool gameOver) {
+                         bool night, bool wingUp, bool gameOver, bool paused) {
   display.invertDisplay(TREX_ENABLE_NIGHT_MODE && night);
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
+  trexCanvas.fillRect(0, 0, TREX_SCREEN_W, TREX_HUD_H, SSD1306_BLACK);
+  trexCanvas.fillRect(0, TREX_HUD_H, TREX_SCREEN_W, TREX_SCREEN_H - TREX_HUD_H, SSD1306_BLACK);
+  trexCanvas.setTextSize(1);
+
+  trexCanvas.setTextColor(UI_HEADER_COLOR);
+  trexCanvas.setCursor(0, 1);
+  char scoreText[6];
+  snprintf(scoreText, sizeof(scoreText), "%05u", score);
+  trexCanvas.print(scoreText);
+  trexCanvas.setTextColor(UI_SEPARATOR_COLOR);
+  trexCanvas.setCursor(42, 1);
+  trexCanvas.print("HI");
+  snprintf(scoreText, sizeof(scoreText), "%05u", hiScore);
+  trexCanvas.setCursor(58, 1);
+  trexCanvas.print(scoreText);
+  trexCanvas.setTextColor(SSD1306_WHITE);
+  trexDrawLives(lives);
 
   trexDrawGround(groundOffset);
   for (int i = 0; i < obstacleCount; i++) {
@@ -407,31 +483,33 @@ static void trexDrawGame(uint16_t score, uint16_t hiScore, int lives, int player
   }
   if (heart.active) trexDrawHeart(heart.x, heart.y);
 
-  display.setTextSize(1);
-  display.setCursor(44, 0);
-  display.print("HI");
-  char scoreText[6];
-  snprintf(scoreText, sizeof(scoreText), "%05u", hiScore);
-  display.setCursor(60, 0);
-  display.print(scoreText);
-  snprintf(scoreText, sizeof(scoreText), "%05u", score);
-  display.setCursor(95, 0);
-  display.print(scoreText);
-  trexDrawLives(lives);
   trexDrawPlayer(playerBottom, ducking, dead, blinkOn, jumping, score);
 
-  if (gameOver) {
-    display.fillRect(31, 20, 66, 18, SSD1306_WHITE);
-    display.setTextColor(SSD1306_BLACK);
-    display.setCursor(37, 25);
-    display.print("GAME OVER");
-    display.setTextColor(SSD1306_WHITE);
+  if (paused || gameOver) {
+    const int boxW = gameOver ? 78 : 52;
+    const int boxH = 22;
+    const int boxX = (TREX_SCREEN_W - boxW) / 2;
+    const int boxY = (TREX_SCREEN_H - TREX_FOOTER_H - boxH) / 2;
+    trexCanvas.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
+    trexCanvas.drawRect(boxX, boxY, boxW, boxH, UI_SEPARATOR_COLOR);
+    trexCanvas.setTextColor(SSD1306_WHITE);
+    if (gameOver) {
+      trexCanvas.setCursor(boxX + 12, boxY + 7);
+      trexCanvas.print("GAME OVER");
+      trexDrawFooter("LB - exit", "RB - play again");
+    } else {
+      trexCanvas.setCursor(boxX + 11, boxY + 7);
+      trexCanvas.print("Pause");
+      trexDrawFooter("LB - exit", "continue - RB");
+    }
   }
 
-  display.display();
+  trexCanvas.setTextColor(SSD1306_WHITE);
+  trexFlushFrame();
 }
 
 void playTrexGame() {
+  trexInvalidateFrame();
   uint16_t hiScore = trexLoadHiScore();
   uint16_t score = 0;
   int lives = TREX_LIVES_START;
@@ -439,8 +517,10 @@ void playTrexGame() {
   int velocityY = 0;
   bool ducking = false;
   bool gameOver = false;
+  bool paused = false;
   bool night = false;
   bool jumpWasPressed = true;
+  bool rbWasPressed = true;
   int apexHoldFrames = 0;
   int fallGravityHoldFrames = 0;
   unsigned long lastFrame = millis();
@@ -451,12 +531,12 @@ void playTrexGame() {
 
   const int obstacleCount = 4;
   TrexObstacle obstacles[obstacleCount];
-  TrexHeart heart = {-16, 20, false, millis() + 16000};
+  TrexHeart heart = {-16, TREX_HUD_H + 14, false, millis() + 16000};
   trexResetObstacles(obstacles, obstacleCount);
 
   while (true) {
     JoystickData input = readJoysticks();
-    bool jumpPressed = input.rb || input.ly > 50 || input.ry > 50;
+    bool jumpPressed = input.ly > 50 || input.ry > 50;
     bool duckPressed = input.lb || input.ly < -50 || input.ry < -50;
     bool speedBoost = input.lx > 50 || input.rx > 50;
 
@@ -465,22 +545,52 @@ void playTrexGame() {
       if (hiScoreDirty) trexSaveHiScore(hiScore);
       display.invertDisplay(false);
       display.setTextColor(SSD1306_WHITE);
+      display.clearDisplay();
+      trexInvalidateFrame();
       return;
+    }
+
+    if (paused) {
+      trexDrawGame(score, hiScore, lives, playerBottom, ducking, false, false,
+                   playerBottom < TREX_GROUND_Y, obstacles, obstacleCount, heart, groundOffset, night,
+                   (millis() / 180) % 2, false, true);
+      if (input.lb) {
+        noTone(BUZZER_PIN);
+        if (hiScoreDirty) trexSaveHiScore(hiScore);
+        display.invertDisplay(false);
+        display.setTextColor(SSD1306_WHITE);
+        display.clearDisplay();
+        trexInvalidateFrame();
+        return;
+      }
+      if (input.rb && !rbWasPressed) {
+        paused = false;
+        rbWasPressed = true;
+        lastFrame = millis();
+        if (sound) tone(BUZZER_PIN, OK_TONE, 40);
+        delay(120);
+      } else {
+        rbWasPressed = input.rb;
+        delay(50);
+      }
+      continue;
     }
 
     if (gameOver) {
       trexDrawGame(score, hiScore, lives, playerBottom, ducking, true, false,
                    false, obstacles, obstacleCount, heart, groundOffset, night,
-                   (millis() / 180) % 2, true);
+                   (millis() / 180) % 2, true, false);
 
       if (input.lb) {
         noTone(BUZZER_PIN);
         if (hiScoreDirty) trexSaveHiScore(hiScore);
         display.invertDisplay(false);
         display.setTextColor(SSD1306_WHITE);
+        display.clearDisplay();
+        trexInvalidateFrame();
         return;
       }
-      if (input.rb) {
+      if (input.rb && !rbWasPressed) {
         score = 0;
         lives = TREX_LIVES_START;
         playerBottom = TREX_GROUND_Y;
@@ -489,18 +599,31 @@ void playTrexGame() {
         fallGravityHoldFrames = 0;
         ducking = false;
         gameOver = false;
+        paused = false;
         night = false;
         blinkUntil = 0;
         nextNightSwitch = millis() + 18000;
-        heart = {-16, 20, false, millis() + 16000};
+        heart = {-16, TREX_HUD_H + 14, false, millis() + 16000};
         trexResetObstacles(obstacles, obstacleCount);
+        trexInvalidateFrame();
         if (sound) tone(BUZZER_PIN, OK_TONE, 50);
         hiScoreDirty = false;
+        rbWasPressed = true;
         delay(220);
+      } else {
+        rbWasPressed = input.rb;
       }
       delay(50);
       continue;
     }
+
+    if (input.rb && !rbWasPressed) {
+      paused = true;
+      rbWasPressed = true;
+      if (sound) tone(BUZZER_PIN, BACK_TONE, 40);
+      continue;
+    }
+    rbWasPressed = input.rb;
 
     unsigned long now = millis();
     int frameDelay = max(21, 43 - (int)(score / 256));
@@ -558,7 +681,7 @@ void playTrexGame() {
     if (!heart.active && lives < TREX_LIVES_MAX && now > heart.nextSpawn) {
       heart.active = true;
       heart.x = TREX_SCREEN_W + random(16, 48);
-      heart.y = random(18, 38);
+      heart.y = random(TREX_HUD_H + 8, TREX_GROUND_Y - 12);
     }
     if (heart.active) {
       heart.x -= scrollSpeed;
@@ -592,7 +715,7 @@ void playTrexGame() {
       const uint8_t* playerBitmap = trexPlayerBitmap(ducking, playerBottom < TREX_GROUND_Y, score);
       int playerY = playerBottom - trexSpriteHeight(playerBitmap);
       if (trexRectsOverlap(TREX_PLAYER_X, playerY, trexSpriteWidth(playerBitmap), trexSpriteHeight(playerBitmap),
-                           heart.x, heart.y, 5, 4)) {
+                           heart.x, heart.y, 5, 5)) {
         lives++;
         heart.active = false;
         heart.nextSpawn = now + random(16000, 26000);
@@ -613,6 +736,6 @@ void playTrexGame() {
 
     trexDrawGame(score, hiScore, lives, playerBottom, ducking, false,
                  blinking && ((now / 90) % 2 == 0), playerBottom < TREX_GROUND_Y, obstacles, obstacleCount,
-                 heart, groundOffset, night, (score / 8) % 2, false);
+                 heart, groundOffset, night, (score / 8) % 2, false, false);
   }
 }
