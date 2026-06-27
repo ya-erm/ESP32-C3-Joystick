@@ -31,6 +31,9 @@ void playTennisGame() {
 
   int scoreL = 0;
   int scoreR = 0;
+  bool paused = false;
+  bool lbWasPressed = true;
+  bool rbWasPressed = true;
 
   unsigned long lastUpdate = millis();
   const int frameDelay = 16;
@@ -109,12 +112,63 @@ void playTennisGame() {
     display.display();
   };
 
-  auto runCountdown = [&]() {
-    const int boxW = 34;
+  auto drawFullGame = [&]() {
+    display.clearDisplay();
+    drawCenterLine();
+    display.fillRect(leftPaddleX, leftY, paddleW, paddleH, leftColor);
+    display.fillRect(rightPaddleX, rightY, paddleW, paddleH, rightColor);
+    drawScore(true);
+    drawScore(false);
+    display.fillRect(ballX, ballY, ballSize, ballSize, ballColor);
+    display.display();
+  };
+
+  auto drawPauseOverlay = [&]() {
+    const int boxW = 52;
     const int boxH = 22;
     const int boxX = (screenW - boxW) / 2;
     const int boxY = (screenH - boxH) / 2;
+    const int footerH = 11;
+    const int footerY = screenH - footerH;
+    display.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
+    display.drawRect(boxX, boxY, boxW, boxH, UI_SEPARATOR_COLOR);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(boxX + 11, boxY + 7);
+    display.print("Pause");
+
+    display.fillRect(0, footerY, screenW, footerH, SSD1306_BLACK);
+    display.drawFastHLine(0, footerY, screenW, UI_SEPARATOR_COLOR);
+    display.setTextColor(UI_FOOTER_COLOR);
+    display.setCursor(0, footerY + 2);
+    display.print("LB - continue");
+    const char* rightText = "LB+RB - exit";
+    display.setCursor(screenW - strlen(rightText) * 6, footerY + 2);
+    display.print(rightText);
+    display.setTextColor(SSD1306_WHITE);
+    display.display();
+  };
+
+  auto waitCountdownStep = [&](unsigned long duration) {
+    unsigned long start = millis();
+    while (millis() - start < duration) {
+      JoystickData countdownInput = readJoysticks();
+      if (countdownInput.lb && countdownInput.rb) {
+        noTone(BUZZER_PIN);
+        display.clearDisplay();
+        return true;
+      }
+      delay(20);
+    }
+    return false;
+  };
+
+  auto runCountdown = [&]() {
+    const int boxH = 22;
+    const int boxY = (screenH - boxH) / 2;
     for (int value = 3; value >= 1; value--) {
+      const int boxW = 34;
+      const int boxX = (screenW - boxW) / 2;
       drawStaticGame();
       display.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
       display.drawRect(boxX, boxY, boxW, boxH, UI_SEPARATOR_COLOR);
@@ -125,19 +179,25 @@ void playTennisGame() {
       display.setTextSize(1);
       display.setTextColor(SSD1306_WHITE);
       display.display();
-      if (sound) tone(BUZZER_PIN, value == 1 ? 1400 : 900, 90);
-
-      unsigned long start = millis();
-      while (millis() - start < 650) {
-        JoystickData countdownInput = readJoysticks();
-        if (countdownInput.lb && countdownInput.rb) {
-          noTone(BUZZER_PIN);
-          display.clearDisplay();
-          return true;
-        }
-        delay(20);
-      }
+      if (sound) tone(BUZZER_PIN, 900, 90);
+      if (waitCountdownStep(650)) return true;
     }
+
+    const int goBoxW = 44;
+    const int goBoxX = (screenW - goBoxW) / 2;
+    drawStaticGame();
+    display.fillRect(goBoxX, boxY, goBoxW, boxH, SSD1306_BLACK);
+    display.drawRect(goBoxX, boxY, goBoxW, boxH, UI_SEPARATOR_COLOR);
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor((screenW - 24) / 2, boxY + 4);
+    display.print("GO");
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.display();
+    if (sound) tone(BUZZER_PIN, 1700, 260);
+    if (waitCountdownStep(520)) return true;
+
     drawStaticGame();
     return false;
   };
@@ -157,6 +217,35 @@ void playTennisGame() {
       display.clearDisplay();
       return;
     }
+
+    if (paused) {
+      if ((input.lb && !lbWasPressed) || (input.rb && !rbWasPressed)) {
+        paused = false;
+        lbWasPressed = input.lb;
+        rbWasPressed = input.rb;
+        lastUpdate = millis();
+        drawFullGame();
+        if (sound) tone(BUZZER_PIN, OK_TONE, 40);
+        delay(120);
+      } else {
+        lbWasPressed = input.lb;
+        rbWasPressed = input.rb;
+        delay(40);
+      }
+      continue;
+    }
+
+    if ((input.lb && !lbWasPressed) || (input.rb && !rbWasPressed)) {
+      paused = true;
+      lbWasPressed = input.lb;
+      rbWasPressed = input.rb;
+      drawPauseOverlay();
+      if (sound) tone(BUZZER_PIN, BACK_TONE, 40);
+      delay(120);
+      continue;
+    }
+    lbWasPressed = input.lb;
+    rbWasPressed = input.rb;
 
     if (millis() - lastUpdate >= frameDelay) {
       lastUpdate = millis();

@@ -6,6 +6,7 @@ void playSnakeGame() {
   const int borderWidth = 1;
   const int cellSize = 5;
   const int segmentSize = 4;
+  const int footerH = 11;
   const int gameAreaX = 0;
   const int gameAreaY = 0;
   const int gameAreaW = screenW;
@@ -79,6 +80,21 @@ void playSnakeGame() {
     display.setTextColor(SSD1306_WHITE);
   };
 
+  auto drawFooter = [&]() {
+    int footerY = screenH - footerH;
+    display.fillRect(0, footerY, screenW, footerH, SSD1306_BLACK);
+    display.drawFastHLine(0, footerY, screenW, UI_SEPARATOR_COLOR);
+    display.setTextSize(1);
+    display.setTextColor(UI_FOOTER_COLOR);
+    display.setCursor(0, footerY + 2);
+    display.print("LB - exit");
+    const char* rightText = "continue - RB";
+    display.setCursor(screenW - strlen(rightText) * 6, footerY + 2);
+    display.print(rightText);
+    display.setTextColor(SSD1306_WHITE);
+  };
+
+
   auto spawnFood = [&]() {
     bool onSnake;
     do {
@@ -106,16 +122,17 @@ void playSnakeGame() {
   };
 
   auto drawPause = [&]() {
-    const int boxW = 78;
+    const int boxW = 52;
     const int boxH = 22;
     const int boxX = (screenW - boxW) / 2;
-    const int boxY = (screenH - boxH) / 2;
+    const int boxY = (screenH - footerH - boxH) / 2;
     display.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
     display.drawRect(boxX, boxY, boxW, boxH, borderColor);
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
-    display.setCursor((screenW - 30) / 2, (screenH - 8) / 2);
+    display.setCursor(boxX + 11, boxY + 7);
     display.print("Pause");
+    drawFooter();
     display.setTextColor(SSD1306_WHITE);
     display.display();
   };

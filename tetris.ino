@@ -236,7 +236,7 @@ void drawTetrisHud(bool gameOver, bool force = false) {
   display.print(level);
 
   if (!gameOver) {
-    drawNextPiecePreview(nextPiece, (display.width() - 16) / 2, 0);
+    drawNextPiecePreview(nextPiece, (display.width() - 16) / 2, -2);
   }
 
   char scoreText[9];
@@ -341,6 +341,28 @@ void drawNextPiece(Piece piece, int x, int y) {
   drawNextPiecePreview(piece, x, y);
 }
 
+void drawTetrisPauseBox(int x, int y, int w, const char* text, uint16_t textColor) {
+  const int h = 12;
+  display.fillRect(x, y, w, h, SSD1306_BLACK);
+  display.drawRect(x, y, w, h, UI_SEPARATOR_COLOR);
+  display.setTextSize(1);
+  display.setTextColor(textColor);
+  display.setCursor(x + (w - strlen(text) * 6) / 2, y + 2);
+  display.print(text);
+  display.setTextColor(SSD1306_WHITE);
+}
+
+void drawTetrisPauseOverlay() {
+  const int boxW = 78;
+  const int boxH = 12;
+  const int gap = 4;
+  const int x = (display.width() - boxW) / 2;
+  const int y = FIELD_Y + FIELD_HEIGHT * CELL_SIZE / 2 - (boxH * 3 + gap * 2) / 2;
+  drawTetrisPauseBox(x, y, boxW, "LB - resume", UI_FOOTER_COLOR);
+  drawTetrisPauseBox(x, y + boxH + gap, boxW, "Pause", SSD1306_WHITE);
+  drawTetrisPauseBox(x, y + (boxH + gap) * 2, boxW, "LB+RB - exit", UI_FOOTER_COLOR);
+}
+
 // === Вычисление позиции призрака (куда упадет фигура) ===
 Piece getGhostPiece(Piece piece) {
   Piece ghost = piece;
@@ -386,6 +408,9 @@ void playTetrisGame() {
   int fallDelay = 500; // начальная скорость падения (мс)
   
   bool gameOver = false;
+  bool paused = false;
+  bool lbWasPressed = true;
+  bool rbWasPressed = true;
   bool canHardDrop = true;  // флаг разрешения hard drop (нужен возврат джойстика в нейтральное положение)
   
   while (true) {
@@ -399,6 +424,41 @@ void playTetrisGame() {
       display.clearDisplay();
       return;
     }
+
+    if (paused) {
+      if ((input.lb && !lbWasPressed) || (input.rb && !rbWasPressed)) {
+        paused = false;
+        lbWasPressed = input.lb;
+        rbWasPressed = input.rb;
+        lastFall = millis();
+        lastInput = millis();
+        lastRender = millis();
+        resetTetrisRenderCache();
+        drawTetrisBoard(gameOver, true);
+        display.display();
+        if (sound) tone(BUZZER_PIN, OK_TONE, 50);
+        delay(120);
+        continue;
+      }
+
+      lbWasPressed = input.lb;
+      rbWasPressed = input.rb;
+      delay(40);
+      continue;
+    }
+
+    if (!gameOver && input.lb && !lbWasPressed) {
+      paused = true;
+      lbWasPressed = true;
+      rbWasPressed = input.rb;
+      drawTetrisBoard(gameOver);
+      drawTetrisPauseOverlay();
+      display.display();
+      if (sound) tone(BUZZER_PIN, BACK_TONE, 50);
+      continue;
+    }
+    lbWasPressed = input.lb;
+    rbWasPressed = input.rb;
     
     // --- Перезапуск игры после game over при нажатии RB ---
     if (gameOver && input.rb) {
@@ -424,6 +484,9 @@ void playTetrisGame() {
       resetTetrisRenderCache();
       
       gameOver = false;
+      paused = false;
+      lbWasPressed = input.lb;
+      rbWasPressed = input.rb;
       canHardDrop = true;
       
       if (sound) tone(BUZZER_PIN, OK_TONE, 50);
