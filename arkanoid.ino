@@ -180,7 +180,7 @@ void playArkanoidGame() {
     bool changed = lives != lastDrawnLives;
     if (!force && !changed) return;
 
-    if (changed && !force) {
+    if (changed) {
       restoreOverlayArea(lastHeartsBoxX, overlayBoxY, lastHeartsBoxW, overlayBoxH);
     }
     if (w > 0) {
@@ -203,7 +203,7 @@ void playArkanoidGame() {
     bool changed = score != lastDrawnScore;
     if (!force && !changed) return;
 
-    if (changed && !force) {
+    if (changed) {
       restoreOverlayArea(lastScoreBoxX, overlayBoxY, lastScoreBoxW, overlayBoxH);
     }
 
@@ -538,7 +538,7 @@ void playArkanoidGame() {
                                      scoreX, scoreYRect, scoreWRect, scoreHRect) ||
                         rectsOverlap(newBallX, newBallY, ballSize, ballSize,
                                      scoreX, scoreYRect, scoreWRect, scoreHRect);
-    drawStatusOverlays(heartsOverlayDirty, scoreOverlayDirty);
+    drawStatusOverlays(true, true);
     display.display();
   }
 }
